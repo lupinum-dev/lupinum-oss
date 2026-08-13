@@ -55,9 +55,19 @@ jobs:
           }
           NODE
           channel=latest; [[ "$RELEASE_VERSION" == *-* ]] && channel=next
+          test "$(node -p "require('./release.json').distTag")" = "$channel"
           for index in 0 1; do
             tarball="$(node -e "console.log(require('./release.json').packages[$index].filename)")"
-            npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
+            package_name="$(node -e "console.log(require('./release.json').packages[$index].name)")"
+            package_version="$(node -e "console.log(require('./release.json').packages[$index].version)")"
+            expected_shasum="$(node -e "console.log(require('./release.json').packages[$index].shasum)")"
+            if published_shasum="$(npm view "$package_name@$package_version" dist.shasum 2>npm-view.err)"; then
+              test "$published_shasum" = "$expected_shasum"
+              echo "$package_name@$package_version already matches the certified artifact."
+            else
+              grep -q 'E404' npm-view.err || { cat npm-view.err; exit 1; }
+              npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
+            fi
           done
   github-release:
     needs: publish
