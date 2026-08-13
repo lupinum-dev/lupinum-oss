@@ -1,0 +1,22 @@
+packages:
+  - docs
+
+autoInstallPeers: false
+
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+
+minimumReleaseAgeExclude:
+  # Exact reviewed Lupinum releases required to build the handbook. Remove after 2026-08-14 17:36 Europe/Vienna.
+  - "@lupinum/ginko-content@0.4.0-rc.2"
+  - "@lupinum/ginko-docs@0.3.0-rc.5"
+
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  sharp: true
+  vue-demi: true
+
+overrides:
+  esbuild: 0.28.2

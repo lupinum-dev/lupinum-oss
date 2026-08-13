@@ -1,0 +1,31 @@
+{
+  "name": "{{SLUG}}-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "audit:all": "pnpm audit",
+    "build": "pnpm --filter '{{PACKAGE_1}}' build && pnpm --filter '{{PACKAGE_2}}' build",
+    "docs:build": "pnpm build && pnpm --dir docs build",
+    "docs:dev": "pnpm --dir docs dev",
+    "lint": "eslint .",
+    "pack:release": "node scripts/pack-release.mjs",
+    "preview:pack": "node scripts/pack-release.mjs --preview",
+    "release:prepare": "node scripts/prepare-release.mjs",
+    "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:build"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.1.1",
+    "changelogen": "0.6.2",
+    "eslint": "^10.4.1",
+    "pkg-pr-new": "0.0.87",
+    "tsup": "^8.5.1",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.8"
+  }
+}

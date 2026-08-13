@@ -1,0 +1,77 @@
+name: Publish
+on:
+  workflow_dispatch:
+    inputs:
+      version: { description: 'Exact fixed version from both package manifests', required: true, type: string }
+permissions: {}
+concurrency: { group: publish, cancel-in-progress: false }
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: { contents: read }
+    steps:
+      - name: Require main and valid version
+        env: { RELEASE_REF: "${{ github.ref }}", RELEASE_VERSION: "${{ inputs.version }}" }
+        run: |
+          test "$RELEASE_REF" = refs/heads/main
+          node -e "if (!/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RELEASE_VERSION)) throw new Error('Invalid version')"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: 24.18.0, package-manager-cache: false }
+      - run: corepack enable pnpm && corepack prepare pnpm@11.21.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm release:verify
+      - run: test "$(node -p "require('./release-artifacts/release.json').version")" = "${{ inputs.version }}"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with: { name: certified-release, path: release-artifacts, if-no-files-found: error, retention-days: 14 }
+  publish:
+    needs: certify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: npm
+    permissions: { actions: read, contents: read, id-token: write }
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: 24.18.0, registry-url: 'https://registry.npmjs.org', package-manager-cache: false }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: certified-release, path: release-artifacts }
+      - name: Verify and publish fixed package set
+        working-directory: release-artifacts
+        env: { RELEASE_VERSION: "${{ inputs.version }}" }
+        run: |
+          sha256sum --check --strict SHA256SUMS
+          test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process'
+          import { readFileSync } from 'node:fs'
+          const record = JSON.parse(readFileSync('release.json', 'utf8'))
+          const expected = ['{{PACKAGE_1}}', '{{PACKAGE_2}}']
+          if (record.packages.length !== 2 || record.packages.some((pkg, index) => pkg.name !== expected[index] || pkg.version !== process.env.RELEASE_VERSION)) throw new Error('Unexpected package set.')
+          for (const pkg of record.packages) {
+            const manifest = JSON.parse(execFileSync('tar', ['-xOf', pkg.filename, 'package/package.json'], { encoding: 'utf8' }))
+            if (manifest.name !== pkg.name || manifest.version !== pkg.version) throw new Error(`Tarball identity differs for ${pkg.name}.`)
+          }
+          NODE
+          channel=latest; [[ "$RELEASE_VERSION" == *-* ]] && channel=next
+          for index in 0 1; do
+            tarball="$(node -e "console.log(require('./release.json').packages[$index].filename)")"
+            npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
+          done
+  github-release:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: { actions: read, contents: write }
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { name: certified-release, path: release-artifacts }
+      - name: Create release from certified package set
+        env: { GH_TOKEN: "${{ github.token }}", RELEASE_VERSION: "${{ inputs.version }}" }
+        run: |
+          cd release-artifacts
+          sha256sum --check --strict SHA256SUMS
+          prerelease=(); [[ "$RELEASE_VERSION" == *-* ]] && prerelease=(--prerelease)
+          test -s release-notes.md
+          gh release create "v$RELEASE_VERSION" ./*.tgz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$RELEASE_VERSION" --notes-file release-notes.md "${prerelease[@]}"

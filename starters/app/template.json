@@ -1,0 +1,5 @@
+{
+  "profile": "app",
+  "required": ["name", "title", "description", "repository", "domain", "plausible"],
+  "optional": []
+}

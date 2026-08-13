@@ -1,0 +1,10 @@
+node_modules/
+.nuxt/
+.output/
+.vercel/
+.data/
+.cache/
+dist/
+coverage/
+*.log
+.DS_Store

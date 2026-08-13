@@ -1,0 +1,24 @@
+name: Focused proposal
+description: Propose one change to the Lupinum OSS standard.
+title: "proposal: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Proven problem
+      description: Name the real repository or workflow that demonstrates the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Migration and maintenance cost
+    validations:
+      required: true

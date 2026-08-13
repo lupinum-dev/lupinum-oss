@@ -1,0 +1,12 @@
+node_modules
+.pnpm-store
+.npm-cache
+dist
+release-artifacts
+.preview-artifacts
+.nuxt
+.output
+.vercel
+.env*
+!.env.example
+.DS_Store

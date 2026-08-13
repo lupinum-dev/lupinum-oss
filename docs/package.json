@@ -1,0 +1,24 @@
+{
+  "name": "lupinum-oss-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "prepare": "nuxt prepare",
+    "typecheck": "nuxt prepare && vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@lupinum/ginko-content": "0.4.0-rc.2",
+    "@lupinum/ginko-docs": "0.3.0-rc.5",
+    "nuxt": "4.5.2",
+    "nuxt-site-config": "4.1.2",
+    "vue": "3.5.41",
+    "vue-router": "5.2.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vue-tsc": "3.3.9"
+  }
+}

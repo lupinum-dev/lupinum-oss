@@ -1,0 +1,20 @@
+{
+  "name": "lupinum-oss",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "audit:all": "pnpm audit",
+    "check:standard": "node scripts/check-standard.mjs",
+    "docs:build": "pnpm --dir docs build",
+    "docs:dev": "pnpm --dir docs dev",
+    "release:verify": "pnpm verify",
+    "skill:validate": "node scripts/validate-skill.mjs",
+    "starters:verify": "node scripts/verify-starters.mjs",
+    "verify": "pnpm audit:all && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm docs:build"
+  },
+  "devDependencies": {
+    "changelogen": "0.6.2"
+  },
+  "packageManager": "pnpm@11.13.1"
+}

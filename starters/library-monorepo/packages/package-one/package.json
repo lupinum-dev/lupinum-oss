@@ -1,0 +1,16 @@
+{
+  "name": "{{PACKAGE_1}}",
+  "version": "0.1.0",
+  "description": "Core utilities for {{TITLE}}",
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "author": "Lupinum OG <info@lupinum.com> (https://lupinum.com)",
+  "homepage": "https://{{DOMAIN}}",
+  "repository": { "type": "git", "url": "git+https://github.com/{{REPOSITORY}}.git", "directory": "packages/{{PACKAGE_1_DIR}}" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "publishConfig": { "access": "public" },
+  "scripts": { "build": "tsup src/index.ts --format esm --dts --clean" },
+  "devDependencies": { "tsup": "^8.5.1", "typescript": "~5.9.3" }
+}

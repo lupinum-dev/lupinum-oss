@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lupinum OSS"
+  short_description: "Create, audit, and release Lupinum OSS projects"
+  default_prompt: "Use $lupinum-oss to create or audit a repository against the Lupinum OSS handbook."

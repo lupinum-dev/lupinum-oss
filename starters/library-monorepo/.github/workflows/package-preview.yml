@@ -1,0 +1,33 @@
+name: Package preview
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency: { group: 'package-preview-${{ github.event.pull_request.number || github.ref }}', cancel-in-progress: true }
+jobs:
+  preview:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with: { ref: "${{ github.event.pull_request.head.sha || github.sha }}", persist-credentials: false }
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: { node-version: 24.18.0, package-manager-cache: false }
+      - run: corepack enable pnpm && corepack prepare pnpm@11.21.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - id: artifact
+        run: pnpm preview:pack
+      - id: publish
+        run: pnpm exec pkg-pr-new publish --no-compact --comment=update --commentWithSha --no-template --packageManager=pnpm,npm .preview-artifacts/*.tgz
+      - name: Verify hosted URLs and bytes
+        env:
+          PREVIEW_SHA: ${{ steps.publish.outputs.sha }}
+          PREVIEW_URLS: ${{ steps.publish.outputs.urls }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/verify-preview.mjs "${{ steps.artifact.outputs.manifest }}"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with: { name: 'package-preview-${{ github.run_id }}', path: .preview-artifacts, if-no-files-found: error, retention-days: 14 }

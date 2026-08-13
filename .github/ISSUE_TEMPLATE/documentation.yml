@@ -1,0 +1,21 @@
+name: Documentation report
+description: Report an unclear, missing, or incorrect instruction.
+title: "docs: "
+labels: [documentation, docs-feedback]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page URL
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
