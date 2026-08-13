@@ -6,7 +6,7 @@ const version = versionIndex >= 0 ? process.argv[versionIndex + 1] : undefined
 if (!version || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('Pass an exact SemVer with --version.')
 const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).stdout.trim()
 if (status) throw new Error('Release preparation requires a clean worktree.')
-const changelog = spawnSync('pnpm', ['exec', 'changelogen', '--output', 'CHANGELOG.md'], { stdio: 'inherit' })
+const changelog = spawnSync('pnpm', ['exec', 'changelogen', '--bump', '--clean', '-r', version], { stdio: 'inherit' })
 if (changelog.status !== 0) throw new Error('Changelogen failed.')
 for (const directory of ['{{PACKAGE_1_DIR}}', '{{PACKAGE_2_DIR}}']) {
   const path = `packages/${directory}/package.json`

@@ -1,0 +1,65 @@
+name: Starter smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: starter-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify ${{ matrix.profile }} starter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [library, library-monorepo, app]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Materialize starter
+        env:
+          OUTPUT: ${{ runner.temp }}/generated
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          common=(--output "$OUTPUT" --name "test-$PROFILE" --title "Test $PROFILE" --description "A generated contract test." --repository "lupinum-dev/test-$PROFILE" --domain "test-$PROFILE.lupinum.com" --plausible test-script-id)
+          case "$PROFILE" in
+            library)
+              node starters/library/setup.mjs "${common[@]}" --package @lupinum/test-library
+              ;;
+            library-monorepo)
+              node starters/library-monorepo/setup.mjs "${common[@]}" --package @lupinum/test-core --package @lupinum/test-nuxt
+              ;;
+            app)
+              node starters/app/setup.mjs "${common[@]}"
+              ;;
+          esac
+      - name: Install generated project
+        working-directory: ${{ runner.temp }}/generated
+        run: |
+          corepack enable pnpm
+          corepack prepare pnpm@11.21.0 --activate
+          pnpm install
+      - name: Create source commit
+        working-directory: ${{ runner.temp }}/generated
+        run: |
+          git init -b main
+          git config user.name "Lupinum OSS CI"
+          git config user.email "ci@lupinum.com"
+          git add .
+          git commit -m "test: materialize starter"
+      - name: Verify generated project and release contract
+        working-directory: ${{ runner.temp }}/generated
+        run: pnpm release:verify

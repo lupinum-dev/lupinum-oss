@@ -66,7 +66,15 @@ jobs:
           test "$package_name" = '{{PACKAGE_NAME}}'
           test "$package_version" = "$RELEASE_VERSION"
           channel=latest; [[ "$RELEASE_VERSION" == *-* ]] && channel=next
-          npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
+          test "$(node -p "require('./release.json').distTag")" = "$channel"
+          expected_shasum="$(node -p "require('./release.json').shasum")"
+          if published_shasum="$(npm view "$package_name@$package_version" dist.shasum 2>npm-view.err)"; then
+            test "$published_shasum" = "$expected_shasum"
+            echo "$package_name@$package_version already matches the certified artifact."
+          else
+            grep -q 'E404' npm-view.err || { cat npm-view.err; exit 1; }
+            npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
+          fi
 
   github-release:
     needs: publish

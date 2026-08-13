@@ -16,6 +16,8 @@ const filename = result.stdout.trim().split('\n').at(-1)
 const bytes = await readFile(`${directory}/${filename}`)
 const packageJson = JSON.parse(await readFile('package.json', 'utf8'))
 const sha256 = createHash('sha256').update(bytes).digest('hex')
+const shasum = createHash('sha1').update(bytes).digest('hex')
+const distTag = packageJson.version.includes('-') ? 'next' : 'latest'
 const sourceSha = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
 const changelog = await readFile('CHANGELOG.md', 'utf8')
 const escapedVersion = packageJson.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -30,6 +32,6 @@ await writeFile(`${directory}/SHA256SUMS`, [
   `${createHash('sha256').update(changelogBytes).digest('hex')}  CHANGELOG.md`,
   `${createHash('sha256').update(notesBytes).digest('hex')}  release-notes.md`,
 ].join('\n') + '\n')
-await writeFile(`${directory}/release.json`, `${JSON.stringify({ name: packageJson.name, version: packageJson.version, filename, sha256, sourceSha, packages: [{ name: packageJson.name, filename, sha256 }] }, null, 2)}\n`)
+await writeFile(`${directory}/release.json`, `${JSON.stringify({ name: packageJson.name, version: packageJson.version, filename, sha256, shasum, distTag, sourceSha, packages: [{ name: packageJson.name, version: packageJson.version, filename, sha256, shasum }] }, null, 2)}\n`)
 if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `directory=${directory}\nmanifest=${directory}/release.json\n`)
 console.log(JSON.stringify({ directory, filename, name: packageJson.name, sha256 }))

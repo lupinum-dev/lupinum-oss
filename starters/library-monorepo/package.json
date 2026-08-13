@@ -16,7 +16,7 @@
     "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:build"
+    "verify": "pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm docs:build"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

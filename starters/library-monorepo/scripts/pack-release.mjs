@@ -19,11 +19,12 @@ for (const packageDirectory of packages) {
   if (result.status !== 0) throw new Error(result.stderr || `npm pack failed for ${packageDirectory}.`)
   const filename = `${manifest.name.replace(/^@/, '').replace('/', '-')}-${manifest.version}.tgz`
   const bytes = await readFile(`${directory}/${filename}`)
-  records.push({ name: manifest.name, version: manifest.version, filename, sha256: createHash('sha256').update(bytes).digest('hex') })
+  records.push({ name: manifest.name, version: manifest.version, filename, sha256: createHash('sha256').update(bytes).digest('hex'), shasum: createHash('sha1').update(bytes).digest('hex') })
 }
 if (new Set(records.map(record => record.version)).size !== 1) throw new Error('All packages must use one fixed version.')
 const sourceSha = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
 const version = records[0].version
+const distTag = version.includes('-') ? 'next' : 'latest'
 const changelog = await readFile('CHANGELOG.md', 'utf8')
 const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const matches = [...changelog.matchAll(new RegExp(`^##\\s+v?${escapedVersion}(?:\\s|$)[^\\n]*\\n([\\s\\S]*?)(?=^##\\s|(?![\\s\\S]))`, 'gm'))]
@@ -37,6 +38,6 @@ await writeFile(`${directory}/SHA256SUMS`, [
   `${createHash('sha256').update(changelogBytes).digest('hex')}  CHANGELOG.md`,
   `${createHash('sha256').update(notesBytes).digest('hex')}  release-notes.md`,
 ].join('\n') + '\n')
-await writeFile(`${directory}/release.json`, `${JSON.stringify({ version, sourceSha, packages: records }, null, 2)}\n`)
+await writeFile(`${directory}/release.json`, `${JSON.stringify({ version, distTag, sourceSha, packages: records }, null, 2)}\n`)
 if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `directory=${directory}\nmanifest=${directory}/release.json\n`)
 console.log(JSON.stringify({ directory, packages: records }))
