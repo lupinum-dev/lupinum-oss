@@ -6,14 +6,14 @@
   "packageManager": "pnpm@11.21.0",
   "scripts": {
     "audit:all": "pnpm audit",
-    "build": "pnpm --filter '{{PACKAGE_1}}' build && pnpm --filter '{{PACKAGE_2}}' build",
+    "build": "pnpm --filter './packages/*' -r build",
     "docs:build": "pnpm build && pnpm --dir docs build",
     "docs:dev": "pnpm --dir docs dev",
     "lint": "eslint .",
     "pack:release": "node scripts/pack-release.mjs",
     "preview:pack": "node scripts/pack-release.mjs --preview",
     "release:prepare": "node scripts/prepare-release.mjs",
-    "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release",
+    "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release && node scripts/verify-packed-consumer.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm docs:build"

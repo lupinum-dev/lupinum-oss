@@ -2,8 +2,8 @@
 
 ## Architecture
 
-- `packages/{{PACKAGE_1_DIR}}` owns framework-neutral logic.
-- `packages/{{PACKAGE_2_DIR}}` owns the main integration and may depend on the core package.
+- `packages/` contains independent public packages in one fixed-version release set.
+- `packages/{{PRIMARY_PACKAGE_DIR}}` is the primary package used by documentation examples.
 - `docs/` consumes workspace packages through public entry points.
 - `scripts/` certifies the complete fixed-version package set.
 
@@ -13,7 +13,7 @@ Run `pnpm verify` before handoff. Run `pnpm release:verify` before a release. Us
 
 ## Invariants
 
-- Keep both public packages on one fixed version.
+- Keep all public packages on one fixed version.
 - Do not bypass package boundaries with private source imports.
 - Do not publish from a workstation after the first npm bootstrap.
 - Do not add `NPM_TOKEN` or rename `publish.yml` without migrating all trusted publishers.

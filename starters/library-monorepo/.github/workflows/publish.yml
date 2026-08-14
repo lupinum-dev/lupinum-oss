@@ -2,7 +2,7 @@ name: Publish
 on:
   workflow_dispatch:
     inputs:
-      version: { description: 'Exact fixed version from both package manifests', required: true, type: string }
+      version: { description: 'Exact fixed version from all package manifests', required: true, type: string }
 permissions: {}
 concurrency: { group: publish, cancel-in-progress: false }
 jobs:
@@ -43,12 +43,15 @@ jobs:
         run: |
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
+          test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
           node --input-type=module <<'NODE'
           import { execFileSync } from 'node:child_process'
           import { readFileSync } from 'node:fs'
           const record = JSON.parse(readFileSync('release.json', 'utf8'))
-          const expected = ['{{PACKAGE_1}}', '{{PACKAGE_2}}']
-          if (record.packages.length !== 2 || record.packages.some((pkg, index) => pkg.name !== expected[index] || pkg.version !== process.env.RELEASE_VERSION)) throw new Error('Unexpected package set.')
+          if (record.packages.length < 2 || record.packages.some(pkg => pkg.version !== process.env.RELEASE_VERSION)) throw new Error('Unexpected package set.')
+          if (new Set(record.packages.map(pkg => pkg.name)).size !== record.packages.length) throw new Error('Package names must be unique.')
+          const sorted = [...record.packages].sort((left, right) => left.name.localeCompare(right.name))
+          if (record.packages.some((pkg, index) => pkg.name !== sorted[index].name)) throw new Error('Package inventory must be sorted by name.')
           for (const pkg of record.packages) {
             const manifest = JSON.parse(execFileSync('tar', ['-xOf', pkg.filename, 'package/package.json'], { encoding: 'utf8' }))
             if (manifest.name !== pkg.name || manifest.version !== pkg.version) throw new Error(`Tarball identity differs for ${pkg.name}.`)
@@ -56,11 +59,7 @@ jobs:
           NODE
           channel=latest; [[ "$RELEASE_VERSION" == *-* ]] && channel=next
           test "$(node -p "require('./release.json').distTag")" = "$channel"
-          for index in 0 1; do
-            tarball="$(node -e "console.log(require('./release.json').packages[$index].filename)")"
-            package_name="$(node -e "console.log(require('./release.json').packages[$index].name)")"
-            package_version="$(node -e "console.log(require('./release.json').packages[$index].version)")"
-            expected_shasum="$(node -e "console.log(require('./release.json').packages[$index].shasum)")"
+          while IFS=$'\t' read -r tarball package_name package_version expected_shasum; do
             if published_shasum="$(npm view "$package_name@$package_version" dist.shasum 2>npm-view.err)"; then
               test "$published_shasum" = "$expected_shasum"
               echo "$package_name@$package_version already matches the certified artifact."
@@ -68,7 +67,8 @@ jobs:
               grep -q 'E404' npm-view.err || { cat npm-view.err; exit 1; }
               npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
             fi
-          done
+            npm view "$package_name" dist-tags --json | node -e "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => { const tags = JSON.parse(input); if (tags[process.argv[1]] !== process.argv[2]) throw new Error('Registry dist-tag does not point to the certified version.') })" "$channel" "$RELEASE_VERSION"
+          done < <(node -e "for (const pkg of require('./release.json').packages) console.log([pkg.filename, pkg.name, pkg.version, pkg.shasum].join('\\t'))")
   github-release:
     needs: publish
     runs-on: ubuntu-24.04
@@ -82,6 +82,7 @@ jobs:
         run: |
           cd release-artifacts
           sha256sum --check --strict SHA256SUMS
+          test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
           prerelease=(); [[ "$RELEASE_VERSION" == *-* ]] && prerelease=(--prerelease)
           test -s release-notes.md
           gh release create "v$RELEASE_VERSION" ./*.tgz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$RELEASE_VERSION" --notes-file release-notes.md "${prerelease[@]}"

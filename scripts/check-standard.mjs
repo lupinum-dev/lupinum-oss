@@ -1,5 +1,6 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { checkWorkflow, containsNpmCredential, readWorkflow } from "./workflow-policy.mjs";
 
 const root = new URL("../", import.meta.url);
 const failures = [];
@@ -19,6 +20,9 @@ const required = [
   "package.json",
   "pnpm-workspace.yaml",
   "renovate.json",
+  "scripts/verify-action-shas.mjs",
+  "scripts/workflow-policy.mjs",
+  "vercel.json",
 ];
 
 async function text(path) {
@@ -90,25 +94,21 @@ async function walk(directory) {
 
 const repositoryRoot = new URL(".", root).pathname;
 for (const path of await walk(join(repositoryRoot, ".github", "workflows"))) {
-  const source = await readFile(path, "utf8");
-  for (const match of source.matchAll(/\buses:\s*([^\s#]+)/g)) {
-    const reference = match[1];
-    if (!/@[0-9a-f]{40}$/.test(reference)) {
-      failures.push(`${relative(repositoryRoot, path)} uses a mutable action reference: ${reference}`);
-    }
-  }
-  if (source.includes("actions/checkout@") && !source.includes("persist-credentials: false")) {
-    failures.push(`${relative(repositoryRoot, path)} persists checkout credentials.`);
+  const rel = relative(repositoryRoot, path);
+  try {
+    const { workflow } = await readWorkflow(path);
+    failures.push(...checkWorkflow(rel, workflow));
+  } catch (error) {
+    failures.push(`${rel} is invalid YAML: ${error.message}`);
   }
 }
 
 for (const path of await walk(repositoryRoot)) {
   const rel = relative(repositoryRoot, path);
-  if (!/\.(?:md|json|ya?ml|mjs|ts|vue)$/.test(path)) continue;
-  const source = await readFile(path, "utf8");
-  if (/^\s*NPM_TOKEN\s*[:=]/m.test(source) || /secrets\.NPM_TOKEN\b/.test(source)) {
-    failures.push(`${rel} configures a forbidden npm token.`);
-  }
+  let source;
+  try { source = await readFile(path, "utf8"); } catch { continue; }
+  if (source.includes("\0")) continue;
+  if (containsNpmCredential(source)) failures.push(`${rel} configures a forbidden npm credential.`);
 }
 
 if (failures.length) {

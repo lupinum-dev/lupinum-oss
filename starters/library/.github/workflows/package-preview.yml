@@ -29,6 +29,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - id: artifact
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: pnpm preview:pack
       - id: publish
         run: pnpm exec pkg-pr-new publish --no-compact --comment=update --commentWithSha --no-template --packageManager=pnpm,npm .preview-artifacts/*.tgz

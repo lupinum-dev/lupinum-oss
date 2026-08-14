@@ -19,7 +19,7 @@ export default defineAppConfig({
       description: { en: '{{DESCRIPTION}}' },
       primary: { label: { en: 'Get started' }, to: { en: '/docs' } },
       secondary: { label: { en: 'View on GitHub' }, to: { en: 'https://github.com/{{REPOSITORY}}' } },
-      install: { command: 'pnpm add {{PACKAGE_2}}' },
+      install: { command: 'pnpm add {{PRIMARY_PACKAGE}}' },
     },
   },
 })

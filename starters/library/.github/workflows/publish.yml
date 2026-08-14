@@ -60,6 +60,7 @@ jobs:
         run: |
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
+          test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
           tarball="$(node -p "require('./release.json').filename")"
           package_name="$(tar -xOf "$tarball" package/package.json | node -e "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input).name))")"
           package_version="$(tar -xOf "$tarball" package/package.json | node -e "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => process.stdout.write(JSON.parse(input).version))")"
@@ -75,6 +76,7 @@ jobs:
             grep -q 'E404' npm-view.err || { cat npm-view.err; exit 1; }
             npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
           fi
+          npm view "$package_name" dist-tags --json | node -e "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => { const tags = JSON.parse(input); if (tags[process.argv[1]] !== process.argv[2]) throw new Error('Registry dist-tag does not point to the certified version.') })" "$channel" "$RELEASE_VERSION"
 
   github-release:
     needs: publish
@@ -93,6 +95,7 @@ jobs:
         run: |
           cd release-artifacts
           sha256sum --check --strict SHA256SUMS
+          test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
           tarball="$(node -p "require('./release.json').filename")"
           prerelease=(); [[ "$RELEASE_VERSION" == *-* ]] && prerelease=(--prerelease)
           test -s release-notes.md

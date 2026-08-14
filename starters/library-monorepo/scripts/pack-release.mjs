@@ -1,17 +1,29 @@
 import { createHash } from 'node:crypto'
-import { appendFile, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
 const preview = process.argv.includes('--preview')
 const directory = preview ? '.preview-artifacts' : 'release-artifacts'
-const packages = ['{{PACKAGE_1_DIR}}', '{{PACKAGE_2_DIR}}']
 await rm(directory, { recursive: true, force: true })
 await mkdir(directory, { recursive: true })
 const records = []
-for (const packageDirectory of packages) {
+const packageDirectories = (await readdir('packages', { withFileTypes: true }))
+  .filter(entry => entry.isDirectory())
+  .map(entry => entry.name)
+const packageManifests = []
+for (const packageDirectory of packageDirectories) {
   const packagePath = `packages/${packageDirectory}`
-  const manifest = JSON.parse(await readFile(`${packagePath}/package.json`, 'utf8'))
+  try {
+    packageManifests.push({ packageDirectory, packagePath, manifest: JSON.parse(await readFile(`${packagePath}/package.json`, 'utf8')) })
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+}
+packageManifests.sort((left, right) => left.manifest.name.localeCompare(right.manifest.name))
+if (packageManifests.length < 2) throw new Error('A package workspace release requires at least two packages.')
+if (new Set(packageManifests.map(entry => entry.manifest.name)).size !== packageManifests.length) throw new Error('Package names must be unique.')
+for (const { packageDirectory, packagePath, manifest } of packageManifests) {
   const result = spawnSync('pnpm', ['--dir', packagePath, '--config.ignore-scripts=true', 'pack', '--pack-destination', resolve(directory)], {
     encoding: 'utf8',
     env: { ...process.env, npm_config_cache: process.env.npm_config_cache ?? resolve('.npm-cache') },
@@ -22,7 +34,10 @@ for (const packageDirectory of packages) {
   records.push({ name: manifest.name, version: manifest.version, filename, sha256: createHash('sha256').update(bytes).digest('hex'), shasum: createHash('sha1').update(bytes).digest('hex') })
 }
 if (new Set(records.map(record => record.version)).size !== 1) throw new Error('All packages must use one fixed version.')
-const sourceSha = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim()
+const source = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' })
+const sourceSha = source.stdout.trim()
+if (source.status !== 0 || !/^[0-9a-f]{40}$/.test(sourceSha)) throw new Error(source.stderr || 'Cannot resolve the source commit.')
+if (process.env.GITHUB_SHA && sourceSha !== process.env.GITHUB_SHA) throw new Error('The release source differs from GITHUB_SHA.')
 const version = records[0].version
 const distTag = version.includes('-') ? 'next' : 'latest'
 const changelog = await readFile('CHANGELOG.md', 'utf8')

@@ -18,7 +18,7 @@ Follow [docs/WRITING.md](docs/WRITING.md). Run `pnpm docs:build`. Inspect deskto
 
 ## Deployment
 
-Merge only after required CI and Vercel checks pass. Vercel deploys current `main`. Verify the primary journey, navigation, metadata, Plausible, external links, console, failed requests, robots file, and sitemap on the canonical domain.
+Merge only after required CI and Vercel checks pass. Vercel deploys current `main` from the repository root. Verify the primary journey, navigation, metadata, Plausible, external links, console, failed requests, robots file, and sitemap on the canonical domain.
 
 ## Rollback
 

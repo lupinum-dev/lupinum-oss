@@ -25,7 +25,7 @@
     "pack:release": "node scripts/pack-release.mjs",
     "preview:pack": "node scripts/pack-release.mjs --preview",
     "release:prepare": "changelogen --bump --clean",
-    "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release",
+    "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release && node scripts/verify-packed-consumer.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:build"

@@ -1,6 +1,9 @@
 name: Starter smoke
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '17 4 * * 1'
@@ -40,7 +43,7 @@ jobs:
               node starters/library/setup.mjs "${common[@]}" --package @lupinum/test-library
               ;;
             library-monorepo)
-              node starters/library-monorepo/setup.mjs "${common[@]}" --package @lupinum/test-core --package @lupinum/test-nuxt
+              node starters/library-monorepo/setup.mjs "${common[@]}" --package @lupinum/test-core --package @lupinum/test-vue --package @lupinum/test-nuxt --primary @lupinum/test-vue
               ;;
             app)
               node starters/app/setup.mjs "${common[@]}"
@@ -62,4 +65,16 @@ jobs:
           git commit -m "test: materialize starter"
       - name: Verify generated project and release contract
         working-directory: ${{ runner.temp }}/generated
-        run: pnpm release:verify
+        run: GITHUB_SHA="$(git rev-parse HEAD)" pnpm release:verify
+
+  gate:
+    name: Starter smoke
+    if: always()
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every starter profile to pass
+        env:
+          MATRIX_RESULT: ${{ needs.verify.result }}
+        run: test "$MATRIX_RESULT" = success

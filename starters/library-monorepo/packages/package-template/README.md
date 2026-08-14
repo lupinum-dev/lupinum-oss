@@ -1,17 +1,17 @@
-# {{PACKAGE_1}}
+# {{PACKAGE_NAME}}
 
-Core utilities for [{{TITLE}}](https://{{DOMAIN}}).
+An independent package in [{{TITLE}}](https://{{DOMAIN}}).
 
 ## Installation
 
 ```bash
-pnpm add {{PACKAGE_1}}
+pnpm add {{PACKAGE_NAME}}
 ```
 
 ## Quick start
 
 ```ts
-import { createItem } from '{{PACKAGE_1}}'
+import { createItem } from '{{PACKAGE_NAME}}'
 ```
 
 See the [complete documentation](https://{{DOMAIN}}). Report vulnerabilities [privately](https://github.com/{{REPOSITORY}}/security/advisories/new). Licensed under MIT.

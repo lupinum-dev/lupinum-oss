@@ -1,6 +1,0 @@
-{
-  "profile": "library-monorepo",
-  "required": ["name", "title", "description", "repository", "domain", "plausible"],
-  "repeatable": ["package"],
-  "optional": []
-}
