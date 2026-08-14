@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 
 const versionIndex = process.argv.indexOf('--version')
@@ -8,7 +8,8 @@ const status = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' })
 if (status) throw new Error('Release preparation requires a clean worktree.')
 const changelog = spawnSync('pnpm', ['exec', 'changelogen', '--bump', '--clean', '-r', version], { stdio: 'inherit' })
 if (changelog.status !== 0) throw new Error('Changelogen failed.')
-for (const directory of ['{{PACKAGE_1_DIR}}', '{{PACKAGE_2_DIR}}']) {
+const directories = (await readdir('packages', { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort()
+for (const directory of directories) {
   const path = `packages/${directory}/package.json`
   const manifest = JSON.parse(await readFile(path, 'utf8'))
   manifest.version = version

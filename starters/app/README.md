@@ -38,6 +38,8 @@ Open the local URL that Nuxt prints.
 
 The production application is available at [{{DOMAIN}}](https://{{DOMAIN}}). Repository procedures are in [MAINTAINING.md](MAINTAINING.md).
 
+Vercel deploys this application from the repository root.
+
 ## Contributing and development
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request. Run `pnpm verify` before review.

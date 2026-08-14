@@ -31,3 +31,7 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+      - name: Verify pinned Actions exist upstream
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verify-action-shas.mjs

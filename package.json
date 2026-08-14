@@ -14,7 +14,8 @@
     "verify": "pnpm audit:all && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm docs:build"
   },
   "devDependencies": {
-    "changelogen": "0.6.2"
+    "changelogen": "0.6.2",
+    "yaml": "2.9.0"
   },
-  "packageManager": "pnpm@11.13.1"
+  "packageManager": "pnpm@11.21.0"
 }

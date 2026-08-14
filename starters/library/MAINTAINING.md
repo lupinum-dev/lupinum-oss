@@ -16,9 +16,12 @@ Use Renovate for routine updates. Review release notes and lockfile changes. Do 
 
 Follow [docs/WRITING.md](docs/WRITING.md). Run `pnpm docs:build`. Verify links, mobile navigation, search, analytics, and feedback on the deployed preview.
 
+Vercel uses the repository root because the documentation build needs this
+workspace package. Keep `vercel.json` at the repository root.
+
 ## First npm release
 
-The package must exist before npm can bind a trusted publisher. Let CI certify the exact tarball. Download that artifact and verify its SHA-256. Publish that same file once with 2FA, `--access public`, `--tag latest`, and `--ignore-scripts`. Then bind `publish.yml` and environment `npm` as the trusted publisher. Never rebuild the bootstrap artifact.
+The package must exist before npm can bind a trusted publisher. Download the exact tarball from the successful main CI release-candidate artifact and verify its SHA-256. Publish that same file once with 2FA, `--access public`, `--tag latest`, and `--ignore-scripts`. Then bind `publish.yml` and environment `npm` as the trusted publisher. Dispatch `publish.yml` for the same version. It verifies and skips the existing bytes, checks the dist-tag, and creates the GitHub release. Never rebuild the bootstrap artifact or create the tag manually.
 
 ## Normal release
 

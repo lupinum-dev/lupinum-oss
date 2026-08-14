@@ -42,6 +42,9 @@ console.log(greet('World'))
 
 Read the complete documentation at [{{DOMAIN}}](https://{{DOMAIN}}).
 
+Vercel deploys the documentation from the repository root because it builds
+this package before it builds `docs/`.
+
 ## Contributing and development
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request. Maintainers use [MAINTAINING.md](MAINTAINING.md).

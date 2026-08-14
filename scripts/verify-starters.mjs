@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { checkCiWorkflow, checkPreviewWorkflow, checkPublishWorkflow, checkWorkflow, containsNpmCredential, readWorkflow } from "./workflow-policy.mjs";
 
 const root = new URL("../starters/", import.meta.url);
 const profiles = ["library", "library-monorepo", "app"];
@@ -27,6 +28,7 @@ async function walk(directory) {
   return files;
 }
 
+try {
 for (const profile of profiles) {
   const base = new URL(`${profile}/`, root);
   const required = [
@@ -42,13 +44,17 @@ for (const profile of profiles) {
     "package.json",
     "pnpm-workspace.yaml",
     "setup.mjs",
-    "template.json",
+    "vercel.json",
   ];
-  if (profile !== "app") required.push(".github/workflows/package-preview.yml", ".github/workflows/publish.yml");
+  if (profile !== "app") required.push(".github/workflows/package-preview.yml", ".github/workflows/publish.yml", "scripts/verify-packed-consumer.mjs");
+  const missingRequired = [];
   for (const path of required) {
-    if (!(await exists(new URL(path, base)))) failures.push(`${profile} is missing ${path}`);
+    if (!(await exists(new URL(path, base)))) {
+      failures.push(`${profile} is missing ${path}`);
+      missingRequired.push(path);
+    }
   }
-  if (!(await exists(new URL("package.json", base)))) continue;
+  if (missingRequired.length) continue;
   const manifest = JSON.parse(await readFile(new URL("package.json", base), "utf8"));
   for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
     if (!manifest.scripts?.[command]) failures.push(`${profile} is missing command ${command}`);
@@ -66,20 +72,21 @@ for (const profile of profiles) {
   if ((readme.match(/<h1\b/g) ?? []).length !== 1) failures.push(`${profile} README must contain one H1`);
 
   if (profile !== "app") {
+    if (!manifest.scripts["release:verify"].includes("verify-packed-consumer.mjs")) failures.push(`${profile} release verification does not test the packed consumer boundary`);
     const changelog = await readFile(new URL("CHANGELOG.md", base), "utf8");
     if (!/^## v0\.1\.0\s*$/m.test(changelog)) failures.push(`${profile} needs an initial v0.1.0 changelog entry`);
   }
   for (const path of await walk(base.pathname)) {
-    if (!path.endsWith(".yml") && !path.endsWith(".yaml")) continue;
-    const source = await readFile(path, "utf8");
-    for (const match of source.matchAll(/\buses:\s*([^\s#]+)/g)) {
-      if (!/@[0-9a-f]{40}$/.test(match[1])) failures.push(`${profile} uses mutable action ${match[1]}`);
-    }
-    if (source.includes("actions/checkout@") && !source.includes("persist-credentials: false")) {
-      failures.push(`${profile} persists checkout credentials in ${path.slice(base.pathname.length)}`);
-    }
-    if (/secrets\.(?:NPM_TOKEN|NODE_AUTH_TOKEN|GH_TOKEN)|^\s*(?:NPM_TOKEN|NODE_AUTH_TOKEN)\s*:/m.test(source)) {
-      failures.push(`${profile} configures a long-lived publication token in ${path.slice(base.pathname.length)}`);
+    let source;
+    try { source = await readFile(path, "utf8"); } catch { continue; }
+    if (source.includes("\0")) continue;
+    if (containsNpmCredential(source)) failures.push(`${profile} configures a long-lived npm credential in ${path.slice(base.pathname.length)}`);
+    if (!path.includes(`${join(".github", "workflows")}/`) || (!path.endsWith(".yml") && !path.endsWith(".yaml"))) continue;
+    try {
+      const { workflow } = await readWorkflow(path);
+      failures.push(...checkWorkflow(`${profile}/${path.slice(base.pathname.length)}`, workflow));
+    } catch (error) {
+      failures.push(`${profile}/${path.slice(base.pathname.length)} is invalid YAML: ${error.message}`);
     }
   }
 
@@ -90,22 +97,30 @@ for (const profile of profiles) {
       failures.push("app must load Plausible exactly once through the Nuxt Scripts registry");
     }
   } else {
-    const preview = await readFile(new URL(".github/workflows/package-preview.yml", base), "utf8");
-    if (!preview.includes("github.event.pull_request.head.repo.full_name == github.repository")) failures.push(`${profile} preview must reject automatic fork execution`);
-    if (!preview.includes("permissions:") || !preview.includes("contents: read")) failures.push(`${profile} preview must be read-only`);
-
-    const publish = await readFile(new URL(".github/workflows/publish.yml", base), "utf8");
-    for (const boundary of ["environment: npm", "id-token: write", "actions/download-artifact@", "--provenance", "--ignore-scripts", "dist.shasum"]) {
-      if (!publish.includes(boundary)) failures.push(`${profile} publish workflow is missing ${boundary}`);
-    }
-    const privilegedPublish = publish.split(/\n  publish:\s*\n/)[1]?.split(/\n  github-release:\s*\n/)[0] ?? "";
-    if (privilegedPublish.includes("actions/checkout@") || privilegedPublish.includes("pnpm install")) {
-      failures.push(`${profile} privileged publish job executes repository setup`);
+    const previewPath = new URL(".github/workflows/package-preview.yml", base).pathname;
+    const publishPath = new URL(".github/workflows/publish.yml", base).pathname;
+    const { workflow: preview } = await readWorkflow(previewPath);
+    const { source: publishSource, workflow: publish } = await readWorkflow(publishPath);
+    failures.push(...checkPreviewWorkflow(`${profile}/.github/workflows/package-preview.yml`, preview));
+    failures.push(...checkPublishWorkflow(`${profile}/.github/workflows/publish.yml`, publish));
+    for (const boundary of ["actions/download-artifact@", "--provenance", "--ignore-scripts", "dist.shasum", "dist-tags", "sourceSha"]) {
+      if (!publishSource.includes(boundary)) failures.push(`${profile} publish workflow is missing ${boundary}`);
     }
     const packer = await readFile(new URL("scripts/pack-release.mjs", base), "utf8");
-    for (const field of ["sha256", "shasum", "distTag", "sourceSha"]) {
+    for (const field of ["sha256", "shasum", "distTag", "sourceSha", "GITHUB_SHA"]) {
       if (!packer.includes(field)) failures.push(`${profile} release manifest is missing ${field}`);
     }
+  }
+
+  const ciPath = new URL(".github/workflows/ci.yml", base).pathname;
+  const { workflow: ci } = await readWorkflow(ciPath);
+  failures.push(...checkCiWorkflow(`${profile}/.github/workflows/ci.yml`, ci));
+  if (await exists(new URL("docs/vercel.json", base))) failures.push(`${profile} keeps Vercel configuration below its deployment root`);
+  const vercel = JSON.parse(await readFile(new URL("vercel.json", base), "utf8"));
+  if (profile === "app") {
+    if (vercel.buildCommand !== "pnpm build") failures.push("app Vercel build must run from the repository root");
+  } else if (!vercel.buildCommand?.includes("docs/.vercel/output .vercel/output")) {
+    failures.push(`${profile} Vercel build does not preserve the Nuxt Build Output API result`);
   }
 
   const output = join(materializedRoot, profile);
@@ -120,7 +135,12 @@ for (const profile of profiles) {
     "--plausible", "test-script-id",
   ];
   if (profile === "library") common.push("--package", "@lupinum/test-library");
-  if (profile === "library-monorepo") common.push("--package", "@lupinum/test-core", "--package", "@lupinum/test-nuxt");
+  if (profile === "library-monorepo") common.push(
+    "--package", "@lupinum/test-core",
+    "--package", "@lupinum/test-vue",
+    "--package", "@lupinum/test-nuxt",
+    "--primary", "@lupinum/test-vue",
+  );
   const generated = spawnSync(process.execPath, common, { encoding: "utf8" });
   if (generated.status !== 0) {
     failures.push(`${profile} setup failed: ${(generated.stderr || generated.stdout).trim()}`);
@@ -136,7 +156,114 @@ for (const profile of profiles) {
   }
 }
 
-await rm(materializedRoot, { recursive: true, force: true });
+const hostileOutput = join(materializedRoot, "hostile-library");
+const hostileTitle = "Bob's App";
+const hostileDescription = `He said "ship": now\nGrüß 日本語 🌱 <safe>`;
+const hostile = spawnSync(process.execPath, [
+  new URL("library/setup.mjs", root).pathname,
+  "--output", hostileOutput,
+  "--name", "hostile-library",
+  "--title", hostileTitle,
+  "--description", hostileDescription,
+  "--repository", "lupinum-dev/hostile-library",
+  "--domain", "hostile-library.lupinum.com",
+  "--package", "@lupinum/hostile-library",
+], { encoding: "utf8" });
+if (hostile.status !== 0) failures.push(`hostile library setup failed: ${(hostile.stderr || hostile.stdout).trim()}`);
+else {
+  try {
+    const packageJson = JSON.parse(await readFile(join(hostileOutput, "package.json"), "utf8"));
+    if (packageJson.description !== hostileDescription) failures.push("JSON generation did not preserve hostile input");
+    const readme = await readFile(join(hostileOutput, "README.md"), "utf8");
+    if (readme.includes("<safe>") || !readme.includes("Grüß 日本語 🌱")) failures.push("hostile Markdown input was not encoded safely");
+    const appConfig = await readFile(join(hostileOutput, "docs/app/app.config.ts"), "utf8");
+    if (!appConfig.includes("name: { en: 'Bob\\'s App' }") || !appConfig.includes("scriptId: ''")) failures.push("TypeScript generation or optional analytics is invalid");
+    const markdown = await readFile(join(hostileOutput, "docs/content/docs/1.getting-started/1.index.md"), "utf8");
+    const frontmatterDescription = markdown.split("\n").find(line => line.startsWith("description: "))?.slice("description: ".length);
+    if (!frontmatterDescription || JSON.parse(frontmatterDescription) !== "Install Bob's App and use its first API.") failures.push("Markdown frontmatter did not preserve the title");
+  } catch (error) {
+    failures.push(`hostile output is invalid: ${error.message}`);
+  }
+}
+
+const retryOutput = join(materializedRoot, "retry-library");
+const invalid = spawnSync(process.execPath, [
+  new URL("library/setup.mjs", root).pathname,
+  "--output", retryOutput,
+  "--name", "retry-library",
+  "--title", "{{UNRESOLVED}}",
+  "--description", "Must fail atomically.",
+  "--repository", "lupinum-dev/retry-library",
+  "--domain", "retry-library.lupinum.com",
+], { encoding: "utf8" });
+if (invalid.status === 0) failures.push("unresolved hostile token must fail generation");
+if (await exists(retryOutput)) failures.push("failed generation left its final output behind");
+if ((await readdir(materializedRoot)).some(name => name.startsWith(".retry-library.tmp-"))) failures.push("failed generation left a temporary directory behind");
+const retry = spawnSync(process.execPath, [
+  new URL("library/setup.mjs", root).pathname,
+  "--output", retryOutput,
+  "--name", "retry-library",
+  "--title", "Retry Library",
+  "--description", "The retry succeeds.",
+  "--repository", "lupinum-dev/retry-library",
+  "--domain", "retry-library.lupinum.com",
+], { encoding: "utf8" });
+if (retry.status !== 0) failures.push(`retry after atomic failure failed: ${(retry.stderr || retry.stdout).trim()}`);
+
+const existingOutput = join(materializedRoot, "existing-output");
+await mkdir(existingOutput);
+await writeFile(join(existingOutput, "keep.txt"), "keep\n");
+const existing = spawnSync(process.execPath, [
+  new URL("app/setup.mjs", root).pathname,
+  "--output", existingOutput,
+  "--name", "existing-app",
+  "--title", "Existing App",
+  "--description", "Must not overwrite output.",
+  "--repository", "lupinum-dev/existing-app",
+  "--domain", "existing-app.lupinum.com",
+], { encoding: "utf8" });
+if (existing.status === 0 || await readFile(join(existingOutput, "keep.txt"), "utf8") !== "keep\n") failures.push("existing non-empty output was not preserved");
+
+const rejectionCases = [
+  ["duplicate flag", "library/setup.mjs", ["--name", "one", "--name", "two"]],
+  ["duplicate package", "library-monorepo/setup.mjs", ["--package", "@lupinum/same", "--package", "@lupinum/same"]],
+  ["package directory collision", "library-monorepo/setup.mjs", ["--package", "@lupinum/same", "--package", "@other/same"]],
+];
+for (const [label, setup, extra] of rejectionCases) {
+  const output = join(materializedRoot, `reject-${label.replaceAll(" ", "-")}`);
+  const baseArguments = [
+    new URL(setup, root).pathname,
+    "--output", output,
+    "--name", "reject-case",
+    "--title", "Reject Case",
+    "--description", "This input must be rejected.",
+    "--repository", "lupinum-dev/reject-case",
+    "--domain", "reject-case.lupinum.com",
+  ];
+  const result = spawnSync(process.execPath, [...baseArguments, ...extra], { encoding: "utf8" });
+  if (result.status === 0 || await exists(output)) failures.push(`${label} was not rejected atomically`);
+}
+
+const generatedMonorepo = join(materializedRoot, "library-monorepo");
+for (const directory of ["test-core", "test-vue", "test-nuxt"]) {
+  if (!(await exists(join(generatedMonorepo, "packages", directory, "package.json")))) failures.push(`three-package monorepo is missing packages/${directory}`);
+}
+try {
+  const docsManifest = JSON.parse(await readFile(join(generatedMonorepo, "docs/package.json"), "utf8"));
+  for (const name of ["@lupinum/test-core", "@lupinum/test-vue", "@lupinum/test-nuxt"]) {
+    if (docsManifest.dependencies[name] !== "workspace:*") failures.push(`documentation manifest is missing ${name}`);
+  }
+  const monorepoReadme = await readFile(join(generatedMonorepo, "README.md"), "utf8");
+  if (!monorepoReadme.includes("pnpm add @lupinum/test-vue")) failures.push("explicit primary package is not used by documentation");
+} catch (error) {
+  failures.push(`cannot verify three-package monorepo: ${error.message}`);
+}
+
+} catch (error) {
+  failures.push(`Starter verification stopped: ${error.message}`);
+} finally {
+  await rm(materializedRoot, { recursive: true, force: true });
+}
 
 if (failures.length) {
   console.error(failures.map(failure => `- ${failure}`).join("\n"));

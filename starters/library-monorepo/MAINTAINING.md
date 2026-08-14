@@ -16,13 +16,16 @@ Use Renovate for routine updates. Do not bypass the 24-hour quarantine. Run `pnp
 
 Follow [docs/WRITING.md](docs/WRITING.md). Run `pnpm docs:build` and inspect the deployed preview.
 
+Vercel uses the repository root because `docs/` needs local workspace packages.
+Keep `vercel.json` at the repository root.
+
 ## First npm release
 
-CI must certify both exact tarballs. Download and verify that artifact. Publish the tarballs once, in dependency order, with 2FA, `latest`, public access, and scripts disabled. Bind both packages to `publish.yml` and environment `npm`. Never rebuild the bootstrap artifacts.
+Download every exact tarball from the successful main CI release-candidate artifact and verify it. Publish the tarballs once, in dependency order, with 2FA, `latest`, public access, and scripts disabled. Bind every package to `publish.yml` and environment `npm`. Then dispatch `publish.yml` for the same version. It verifies and skips every existing package, checks the dist-tags, and creates the GitHub release. Never rebuild the bootstrap artifacts or create the tag manually.
 
 ## Normal release
 
-Run `pnpm release:prepare -- --version <version>` to update both package versions and `CHANGELOG.md` in one pull request. Merge only after `pnpm release:verify` and CI pass. Dispatch `publish.yml` from current `main` with the exact fixed version. The protected workflow publishes the certified package set and creates one GitHub release.
+Run `pnpm release:prepare -- --version <version>` to update all package versions and `CHANGELOG.md` in one pull request. Merge only after `pnpm release:verify` and CI pass. Dispatch `publish.yml` from current `main` with the exact fixed version. The protected workflow publishes the certified package set and creates one GitHub release.
 
 ## Rollback
 

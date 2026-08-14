@@ -1,5 +1,0 @@
-{
-  "profile": "library",
-  "required": ["name", "title", "description", "repository", "domain", "plausible"],
-  "optional": ["package"]
-}

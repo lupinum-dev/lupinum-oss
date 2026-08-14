@@ -79,6 +79,9 @@ Run the generated repository's `pnpm verify` command before its first commit.
 
 Read the handbook at [oss.lupinum.com](https://oss.lupinum.com). Start with the [repository launch checklist](https://oss.lupinum.com/docs/checklists/repository-launch).
 
+Vercel deploys this workspace from the repository root. The root
+[`vercel.json`](./vercel.json) builds the documentation app in `docs/`.
+
 ## Contributing and development
 
 ```bash
