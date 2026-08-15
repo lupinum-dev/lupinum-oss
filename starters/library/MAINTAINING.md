@@ -21,7 +21,7 @@ workspace package. Keep `vercel.json` at the repository root.
 
 ## First npm release
 
-The package must exist before npm can bind a trusted publisher. Download the exact tarball from the successful main CI release-candidate artifact and verify its SHA-256. Publish that same file once with 2FA, `--access public`, `--tag latest`, and `--ignore-scripts`. Then bind `publish.yml` and environment `npm` as the trusted publisher. Dispatch `publish.yml` for the same version. It verifies and skips the existing bytes, checks the dist-tag, and creates the GitHub release. Never rebuild the bootstrap artifact or create the tag manually.
+The package must exist before npm can bind a trusted publisher. Download the exact tarball from the successful main CI release-candidate artifact and verify its SHA-256. Publish that same file once with 2FA, `--access public`, `--tag latest`, and `--ignore-scripts`. Then bind `publish.yml` and environment `npm` as the trusted publisher. Dispatch `publish.yml` for the same version. It accepts missing provenance only when the registry bytes match and this is the sole published version. It checks the dist-tag and records the bootstrap exception in the GitHub release. Never rebuild the bootstrap artifact or create the tag manually.
 
 ## Normal release
 
