@@ -81,6 +81,14 @@ if ((readme.match(/<h1\b/g) ?? []).length !== 1) failures.push("README must cont
 if (!readme.includes('width="128"')) failures.push("README icon must use width 128.");
 if (!readme.includes("https://oss.lupinum.com")) failures.push("README must link to the canonical site.");
 
+const appConfig = await text("docs/app/app.config.ts");
+if (!appConfig.includes('analytics: { plausible: { scriptId: "5fyE8fD6AUwglXv86unjX" } }')) {
+  failures.push("The handbook must use the verified oss.lupinum.com Plausible script ID.");
+}
+if (!appConfig.includes("feedback: { enabled: true }")) {
+  failures.push("The handbook must enable documentation feedback.");
+}
+
 async function walk(directory) {
   const paths = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
