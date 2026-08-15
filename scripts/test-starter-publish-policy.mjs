@@ -37,6 +37,7 @@ for (const profile of profiles) {
   )
 
   runScenario(profile, program, 'matching bootstrap bytes', {
+    allowBootstrap: true,
     existing: profile.packages,
     expectedPublishes: 0,
   })
@@ -46,6 +47,7 @@ for (const profile of profiles) {
   })
   if (profile.packages.length > 1) {
     runScenario(profile, program, 'mixed package sets recover safely', {
+      allowBootstrap: true,
       existing: profile.packages.slice(0, 1),
       expectedPublishes: profile.packages.length - 1,
     })
@@ -62,14 +64,20 @@ for (const profile of profiles) {
     expectedError: 'did not expose the required bytes',
   })
   runScenario(profile, program, 'later provenance-free versions fail', {
+    allowBootstrap: true,
     existing: profile.packages,
     extraVersion: profile.packages[0],
     expectedError: 'is not the first package version and has no provenance',
   })
   runScenario(profile, program, 'bootstrap status is rechecked', {
+    allowBootstrap: true,
     existing: profile.packages,
     laterVersionDuringVerification: profile.packages[0],
     expectedError: 'did not expose the required bytes',
+  })
+  runScenario(profile, program, 'bootstrap requires explicit authorization', {
+    existing: profile.packages,
+    expectedError: 'requires explicit bootstrap authorization',
   })
   runScenario(profile, program, 'new provenance-free publications fail', {
     existing: [],
@@ -148,6 +156,7 @@ function runScenario(profile, program, scenario, options) {
       encoding: 'utf8',
       env: {
         ...process.env,
+        ALLOW_BOOTSTRAP: options.allowBootstrap ? 'true' : 'false',
         PATH: `${binDir}:${process.env.PATH}`,
         FAKE_NPM_STATE: statePath,
         GITHUB_OUTPUT: outputPath,

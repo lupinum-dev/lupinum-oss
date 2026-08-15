@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       version: { description: 'Exact fixed version from all package manifests', required: true, type: string }
+      allow_bootstrap: { description: 'Authorize exact first-version recovery without npm provenance', required: false, default: false, type: boolean }
 permissions: {}
 concurrency: { group: publish, cancel-in-progress: false }
 jobs:
@@ -44,7 +45,7 @@ jobs:
       - name: Verify and publish fixed package set
         id: publish
         working-directory: release-artifacts
-        env: { RELEASE_VERSION: "${{ inputs.version }}" }
+        env: { ALLOW_BOOTSTRAP: "${{ inputs.allow_bootstrap }}", RELEASE_VERSION: "${{ inputs.version }}" }
         run: |
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
@@ -85,6 +86,9 @@ jobs:
               const versions = Array.isArray(published) ? published : [published]
               if (!attestations && (versions.length !== 1 || versions[0] !== pkg.version)) {
                 fail(`${spec} is not the first package version and has no provenance.`)
+              }
+              if (!attestations && process.env.ALLOW_BOOTSTRAP !== 'true') {
+                fail(`${spec} requires explicit bootstrap authorization.`)
               }
               modes.set(pkg.name, attestations ? 'oidc' : 'bootstrap')
             } else {
