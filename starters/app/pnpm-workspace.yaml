@@ -12,4 +12,7 @@ allowBuilds:
   vue-demi: true
 
 overrides:
-  esbuild: 0.28.2
+  # Remove when fontless requires esbuild 0.28.1 or newer.
+  'fontless>esbuild': 0.28.2
+  # Remove when Vite requires esbuild 0.28.1 or newer.
+  'vite>esbuild': 0.28.2
