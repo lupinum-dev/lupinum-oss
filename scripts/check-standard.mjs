@@ -1,5 +1,6 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { hasExactUrl } from "./url-contract.mjs";
 import { checkWorkflow, containsNpmCredential, readWorkflow } from "./workflow-policy.mjs";
 
 const root = new URL("../", import.meta.url);
@@ -89,7 +90,7 @@ for (const heading of headings) {
 }
 if ((readme.match(/<h1\b/g) ?? []).length !== 1) failures.push("README must contain one H1.");
 if (!readme.includes('width="128"')) failures.push("README icon must use width 128.");
-if (!readme.includes("https://oss.lupinum.com")) failures.push("README must link to the canonical site.");
+if (!hasExactUrl(readme, "https://oss.lupinum.com")) failures.push("README must link to the canonical site.");
 
 const appConfig = await text("docs/app/app.config.ts");
 if (!appConfig.includes('analytics: { plausible: { scriptId: "5fyE8fD6AUwglXv86unjX" } }')) {

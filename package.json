@@ -12,7 +12,8 @@
     "skill:validate": "node scripts/validate-skill.mjs",
     "starters:publish-policy": "node scripts/test-starter-publish-policy.mjs",
     "starters:verify": "node scripts/verify-starters.mjs",
-    "verify": "pnpm audit:all && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build"
+    "test:url-contract": "node scripts/test-url-contract.mjs",
+    "verify": "pnpm audit:all && pnpm test:url-contract && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build"
   },
   "devDependencies": {
     "changelogen": "0.6.2",
