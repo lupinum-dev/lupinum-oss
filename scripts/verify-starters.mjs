@@ -103,7 +103,19 @@ for (const profile of profiles) {
     const { source: publishSource, workflow: publish } = await readWorkflow(publishPath);
     failures.push(...checkPreviewWorkflow(`${profile}/.github/workflows/package-preview.yml`, preview));
     failures.push(...checkPublishWorkflow(`${profile}/.github/workflows/publish.yml`, publish));
-    for (const boundary of ["actions/download-artifact@", "--provenance", "--ignore-scripts", "dist.shasum", "dist-tags", "sourceSha"]) {
+    for (const boundary of [
+      "actions/download-artifact@",
+      "--provenance",
+      "--ignore-scripts",
+      "dist.shasum",
+      "dist.attestations",
+      "versions.length !== 1",
+      "bootstrap-packages",
+      "modes=",
+      "This first npm version was created from the exact CI-certified artifact",
+      "dist-tags",
+      "sourceSha",
+    ]) {
       if (!publishSource.includes(boundary)) failures.push(`${profile} publish workflow is missing ${boundary}`);
     }
     const packer = await readFile(new URL("scripts/pack-release.mjs", base), "utf8");

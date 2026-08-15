@@ -10,8 +10,9 @@
     "docs:dev": "pnpm --dir docs dev",
     "release:verify": "pnpm verify",
     "skill:validate": "node scripts/validate-skill.mjs",
+    "starters:publish-policy": "node scripts/test-starter-publish-policy.mjs",
     "starters:verify": "node scripts/verify-starters.mjs",
-    "verify": "pnpm audit:all && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm docs:build"
+    "verify": "pnpm audit:all && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build"
   },
   "devDependencies": {
     "changelogen": "0.6.2",

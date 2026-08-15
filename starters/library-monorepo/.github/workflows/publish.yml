@@ -32,12 +32,17 @@ jobs:
     timeout-minutes: 10
     environment: npm
     permissions: { actions: read, contents: read, id-token: write }
+    outputs:
+      bootstrap: ${{ steps.publish.outputs.bootstrap }}
+      bootstrap-packages: ${{ steps.publish.outputs.bootstrap-packages }}
+      modes: ${{ steps.publish.outputs.modes }}
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24.18.0, registry-url: 'https://registry.npmjs.org', package-manager-cache: false }
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with: { name: certified-release, path: release-artifacts }
       - name: Verify and publish fixed package set
+        id: publish
         working-directory: release-artifacts
         env: { RELEASE_VERSION: "${{ inputs.version }}" }
         run: |
@@ -45,8 +50,8 @@ jobs:
           test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
           test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
           node --input-type=module <<'NODE'
-          import { execFileSync } from 'node:child_process'
-          import { readFileSync } from 'node:fs'
+          import { execFileSync, spawnSync } from 'node:child_process'
+          import { appendFileSync, readFileSync } from 'node:fs'
           const record = JSON.parse(readFileSync('release.json', 'utf8'))
           if (record.packages.length < 2 || record.packages.some(pkg => pkg.version !== process.env.RELEASE_VERSION)) throw new Error('Unexpected package set.')
           if (new Set(record.packages.map(pkg => pkg.name)).size !== record.packages.length) throw new Error('Package names must be unique.')
@@ -56,19 +61,70 @@ jobs:
             const manifest = JSON.parse(execFileSync('tar', ['-xOf', pkg.filename, 'package/package.json'], { encoding: 'utf8' }))
             if (manifest.name !== pkg.name || manifest.version !== pkg.version) throw new Error(`Tarball identity differs for ${pkg.name}.`)
           }
+          const expectedTag = record.version.includes('-') ? 'next' : 'latest'
+          if (record.distTag !== expectedTag) throw new Error('Unexpected distribution tag.')
+          const fail = message => { throw new Error(message) }
+          const run = (args, inherit = false) => spawnSync('npm', args, {
+            encoding: 'utf8',
+            stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+          })
+          const view = (spec, field) => {
+            const result = run(['view', spec, field, '--json'])
+            if (result.status === 0) return JSON.parse(result.stdout.trim() || 'null')
+            if (/E404|404 Not Found/.test(result.stderr)) return null
+            fail(`npm view failed for ${spec} ${field}: ${result.stderr.trim()}`)
+          }
+          const modes = new Map()
+          for (const pkg of record.packages) {
+            const spec = `${pkg.name}@${pkg.version}`
+            const existing = view(spec, 'dist.shasum')
+            if (existing && existing !== pkg.shasum) fail(`${spec} exists with different bytes.`)
+            if (existing) {
+              const attestations = view(spec, 'dist.attestations')
+              const published = view(pkg.name, 'versions')
+              const versions = Array.isArray(published) ? published : [published]
+              if (!attestations && (versions.length !== 1 || versions[0] !== pkg.version)) {
+                fail(`${spec} is not the first package version and has no provenance.`)
+              }
+              modes.set(pkg.name, attestations ? 'oidc' : 'bootstrap')
+            } else {
+              const result = run([
+                'publish', pkg.filename, '--provenance', '--access', 'public',
+                '--tag', record.distTag, '--ignore-scripts',
+              ], true)
+              if (result.status !== 0) fail(`npm publish failed for ${spec}.`)
+              modes.set(pkg.name, 'oidc')
+            }
+          }
+          for (const pkg of record.packages) {
+            const spec = `${pkg.name}@${pkg.version}`
+            let verified = false
+            for (let attempt = 0; attempt < 12; attempt += 1) {
+              const shasum = view(spec, 'dist.shasum')
+              const attestations = view(spec, 'dist.attestations')
+              const channel = view(pkg.name, `dist-tags.${record.distTag}`)
+              const mode = modes.get(pkg.name)
+              const published = mode === 'bootstrap' ? view(pkg.name, 'versions') : null
+              const versions = Array.isArray(published) ? published : [published]
+              const remainsFirstVersion = mode !== 'bootstrap' || (versions.length === 1 && versions[0] === pkg.version)
+              if (
+                shasum === pkg.shasum && channel === pkg.version && remainsFirstVersion &&
+                (mode === 'bootstrap' || (mode === 'oidc' && attestations))
+              ) {
+                verified = true
+                break
+              }
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)
+            }
+            if (!verified) fail(`${spec} did not expose the required bytes, provenance mode, and ${record.distTag}.`)
+          }
+          const publicationModes = Object.fromEntries(modes)
+          const bootstrapPackages = [...modes].filter(([, mode]) => mode === 'bootstrap').map(([name]) => name)
+          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap=${String(bootstrapPackages.length > 0)}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap-packages=${bootstrapPackages.join(',')}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `modes=${JSON.stringify(publicationModes)}\n`)
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nPublication modes: ${JSON.stringify(publicationModes)}.\n`)
           NODE
-          channel=latest; [[ "$RELEASE_VERSION" == *-* ]] && channel=next
-          test "$(node -p "require('./release.json').distTag")" = "$channel"
-          while IFS=$'\t' read -r tarball package_name package_version expected_shasum; do
-            if published_shasum="$(npm view "$package_name@$package_version" dist.shasum 2>npm-view.err)"; then
-              test "$published_shasum" = "$expected_shasum"
-              echo "$package_name@$package_version already matches the certified artifact."
-            else
-              grep -q 'E404' npm-view.err || { cat npm-view.err; exit 1; }
-              npm publish "$tarball" --provenance --access public --tag "$channel" --ignore-scripts
-            fi
-            npm view "$package_name" dist-tags --json | node -e "let input=''; process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => { const tags = JSON.parse(input); if (tags[process.argv[1]] !== process.argv[2]) throw new Error('Registry dist-tag does not point to the certified version.') })" "$channel" "$RELEASE_VERSION"
-          done < <(node -e "for (const pkg of require('./release.json').packages) console.log([pkg.filename, pkg.name, pkg.version, pkg.shasum].join('\\t'))")
   github-release:
     needs: publish
     runs-on: ubuntu-24.04
@@ -78,11 +134,31 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with: { name: certified-release, path: release-artifacts }
       - name: Create release from certified package set
-        env: { GH_TOKEN: "${{ github.token }}", RELEASE_VERSION: "${{ inputs.version }}" }
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          BOOTSTRAP_RELEASE: ${{ needs.publish.outputs.bootstrap }}
+          BOOTSTRAP_PACKAGES: ${{ needs.publish.outputs.bootstrap-packages }}
         run: |
           cd release-artifacts
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
           prerelease=(); [[ "$RELEASE_VERSION" == *-* ]] && prerelease=(--prerelease)
           test -s release-notes.md
-          gh release create "v$RELEASE_VERSION" ./*.tgz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$RELEASE_VERSION" --notes-file release-notes.md "${prerelease[@]}"
+          cp release-notes.md github-release-notes.md
+          if [ "$BOOTSTRAP_RELEASE" = true ]; then
+            cat >> github-release-notes.md <<'NOTICE'
+
+          > [!NOTE]
+          > This first npm version was created from the exact CI-certified artifact before npm trusted publishing could be configured. npm does not provide GitHub OIDC provenance for this bootstrap publication. The protected workflow verified the registry bytes. Later versions use trusted publishing with provenance.
+          NOTICE
+            printf '> Bootstrap packages: %s\n' "$BOOTSTRAP_PACKAGES" >> github-release-notes.md
+          fi
+          if gh release view "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$RELEASE_VERSION" --jq '.object.sha')"
+            test "$tag_sha" = "$GITHUB_SHA"
+            gh release upload "v$RELEASE_VERSION" ./*.tgz release.json SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --title "v$RELEASE_VERSION" --notes-file github-release-notes.md
+          else
+            gh release create "v$RELEASE_VERSION" ./*.tgz release.json SHA256SUMS --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$RELEASE_VERSION" --notes-file github-release-notes.md "${prerelease[@]}"
+          fi

@@ -21,7 +21,7 @@ Keep `vercel.json` at the repository root.
 
 ## First npm release
 
-Download every exact tarball from the successful main CI release-candidate artifact and verify it. Publish the tarballs once, in dependency order, with 2FA, `latest`, public access, and scripts disabled. Bind every package to `publish.yml` and environment `npm`. Then dispatch `publish.yml` for the same version. It verifies and skips every existing package, checks the dist-tags, and creates the GitHub release. Never rebuild the bootstrap artifacts or create the tag manually.
+Download every exact tarball from the successful main CI release-candidate artifact and verify it. Publish the tarballs once, in dependency order, with 2FA, `latest`, public access, and scripts disabled. Bind every package to `publish.yml` and environment `npm`. Then dispatch `publish.yml` for the same version. It accepts missing provenance for each package only when its registry bytes match and it is that package's sole published version. It safely resumes a mixed package set, checks every dist-tag, and records the bootstrap package names in the GitHub release. Never rebuild the bootstrap artifacts or create the tag manually.
 
 ## Normal release
 
