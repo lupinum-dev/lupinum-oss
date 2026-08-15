@@ -63,7 +63,8 @@ for (const profile of profiles) {
   for (const setting of ["minimumReleaseAge: 1440", "minimumReleaseAgeStrict: true", "minimumReleaseAgeIgnoreMissingTime: false"]) {
     if (!workspace.includes(setting)) failures.push(`${profile} is missing ${setting}`);
   }
-  if (!workspace.includes("esbuild: 0.28.2")) failures.push(`${profile} is missing the reviewed esbuild security override`);
+  if (!workspace.includes("'fontless>esbuild': 0.28.2")) failures.push(`${profile} is missing the narrow fontless esbuild security override`);
+  if (/^\s+esbuild:\s+0\.28\.2\s*$/mu.test(workspace)) failures.push(`${profile} must not override esbuild for the complete dependency graph`);
 
   const readme = await readFile(new URL("README.md", base), "utf8");
   for (const contract of ['width="128"', "## Why use ", "## Requirements", "## Installation", "## Quick start", "## Documentation", "## Support and security", "## License"]) {

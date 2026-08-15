@@ -8,7 +8,9 @@ const failures = [];
 const required = [
   ".github/CODEOWNERS",
   ".github/pull_request_template.md",
+  ".github/workflows/codeql.yml",
   ".github/workflows/ci.yml",
+  ".coderabbit.yaml",
   "AGENTS.md",
   "CLAUDE.md",
   "CONTRIBUTING.md",
@@ -56,6 +58,12 @@ for (const setting of [
   "minimumReleaseAgeIgnoreMissingTime: false",
 ]) {
   if (!workspace.includes(setting)) failures.push(`Missing dependency policy: ${setting}`);
+}
+if (!workspace.includes('"fontless>esbuild": 0.28.2')) {
+  failures.push("The handbook must keep the reviewed esbuild floor narrow to fontless.");
+}
+if (/^\s+esbuild:\s+0\.28\.2\s*$/mu.test(workspace)) {
+  failures.push("The handbook must not override esbuild for the complete dependency graph.");
 }
 
 const readme = await text("README.md");
