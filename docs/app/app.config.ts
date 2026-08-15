@@ -19,6 +19,7 @@ export default {
       branch: "main",
       contentDirectory: "docs/content",
     },
+    analytics: { plausible: { scriptId: "5fyE8fD6AUwglXv86unjX" } },
     feedback: { enabled: true },
     landing: {
       eyebrow: { en: "Open-source operations · built in public" },
