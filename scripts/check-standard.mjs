@@ -59,8 +59,10 @@ for (const setting of [
 ]) {
   if (!workspace.includes(setting)) failures.push(`Missing dependency policy: ${setting}`);
 }
-if (!workspace.includes('"fontless>esbuild": 0.28.2')) {
-  failures.push("The handbook must keep the reviewed esbuild floor narrow to fontless.");
+for (const dependencyPath of ["fontless>esbuild", "vite>esbuild"]) {
+  if (!workspace.includes(`"${dependencyPath}": 0.28.2`)) {
+    failures.push(`The handbook is missing the reviewed ${dependencyPath} security override.`);
+  }
 }
 if (/^\s+esbuild:\s+0\.28\.2\s*$/mu.test(workspace)) {
   failures.push("The handbook must not override esbuild for the complete dependency graph.");

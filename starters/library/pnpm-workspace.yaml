@@ -14,3 +14,8 @@ allowBuilds:
 overrides:
   # Remove when fontless requires esbuild 0.28.1 or newer.
   'fontless>esbuild': 0.28.2
+  # Remove when tsup and bundle-require require esbuild 0.28.1 or newer.
+  'tsup>esbuild': 0.28.2
+  'bundle-require>esbuild': 0.28.2
+  # Remove when Vite requires esbuild 0.28.1 or newer.
+  'vite>esbuild': 0.28.2

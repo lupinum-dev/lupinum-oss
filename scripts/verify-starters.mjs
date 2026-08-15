@@ -63,7 +63,11 @@ for (const profile of profiles) {
   for (const setting of ["minimumReleaseAge: 1440", "minimumReleaseAgeStrict: true", "minimumReleaseAgeIgnoreMissingTime: false"]) {
     if (!workspace.includes(setting)) failures.push(`${profile} is missing ${setting}`);
   }
-  if (!workspace.includes("'fontless>esbuild': 0.28.2")) failures.push(`${profile} is missing the narrow fontless esbuild security override`);
+  const esbuildOverridePaths = ["fontless>esbuild", "vite>esbuild"];
+  if (profile !== "app") esbuildOverridePaths.push("tsup>esbuild", "bundle-require>esbuild");
+  for (const dependencyPath of esbuildOverridePaths) {
+    if (!workspace.includes(`'${dependencyPath}': 0.28.2`)) failures.push(`${profile} is missing the narrow ${dependencyPath} security override`);
+  }
   if (/^\s+esbuild:\s+0\.28\.2\s*$/mu.test(workspace)) failures.push(`${profile} must not override esbuild for the complete dependency graph`);
 
   const readme = await readFile(new URL("README.md", base), "utf8");
