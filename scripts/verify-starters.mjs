@@ -158,6 +158,9 @@ for (const profile of profiles) {
   const wrongVercelPath = profile === "app" ? "docs/vercel.json" : "vercel.json";
   if (await exists(new URL(wrongVercelPath, base))) failures.push(`${profile} keeps Vercel configuration outside its deployment root`);
   const vercel = JSON.parse(await readFile(new URL(vercelPath, base), "utf8"));
+  if (vercel.git?.deploymentEnabled !== true) {
+    failures.push(`${profile} must report a Vercel status for every pull-request commit`);
+  }
   if (profile === "app") {
     if (vercel.buildCommand !== "pnpm build") failures.push("app Vercel build must run from the repository root");
   } else if (vercel.buildCommand !== "pnpm --dir .. docs:build" || vercel.outputDirectory !== null) {
