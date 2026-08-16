@@ -42,8 +42,8 @@ console.log(greet('World'))
 
 Read the complete documentation at [{{DOMAIN}}](https://{{DOMAIN}}).
 
-Vercel deploys the documentation from the repository root because it builds
-this package before it builds `docs/`.
+Vercel deploys the documentation from `docs/`. Enable source files outside the
+Root Directory because the documentation build uses this package.
 
 ## Contributing and development
 

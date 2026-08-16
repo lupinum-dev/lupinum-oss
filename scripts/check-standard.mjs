@@ -25,7 +25,7 @@ const required = [
   "renovate.json",
   "scripts/verify-action-shas.mjs",
   "scripts/workflow-policy.mjs",
-  "vercel.json",
+  "docs/vercel.json",
 ];
 
 async function text(path) {
@@ -53,6 +53,10 @@ if (packageJson.private !== true) failures.push("The handbook workspace must sta
 if (packageJson.devDependencies?.changelogen !== "0.6.2") failures.push("Changelogen must be pinned to 0.6.2.");
 
 const workspace = await text("pnpm-workspace.yaml");
+const renovate = JSON.parse(await text("renovate.json"));
+if (renovate.minimumReleaseAge !== "1 day") {
+  failures.push("Renovate must match the 24-hour pnpm quarantine.");
+}
 for (const setting of [
   "minimumReleaseAge: 1440",
   "minimumReleaseAgeStrict: true",

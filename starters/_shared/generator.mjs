@@ -76,6 +76,8 @@ export async function generate({ output: requestedOutput, replacements, source, 
   const temporary = await mkdtemp(join(parent, `.${basename(output)}.tmp-`))
   try {
     await cp(source, temporary, { recursive: true, filter: path => basename(path) !== 'setup.mjs' })
+    await mkdir(join(temporary, 'scripts'), { recursive: true })
+    await cp(new URL('./verify-action-shas.mjs', import.meta.url), join(temporary, 'scripts', 'verify-action-shas.mjs'))
     if (prepare) await prepare(temporary)
     await materialize(temporary, replacements)
     if (finalize) await finalize(temporary)

@@ -31,13 +31,16 @@ for (const profile of profiles) {
   )
   const match = /node --input-type=module <<'NODE'\n([\s\S]*?)\n\s+NODE/.exec(workflow)
   assert(match, `${profile.name} publish workflow has no inline publication program.`)
-  const program = dedent(match[1]).replace(
-    'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)',
-    'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 0)',
-  )
+  const program = dedent(match[1])
 
   runScenario(profile, program, 'matching bootstrap bytes', {
-    allowBootstrap: true,
+    bootstrapPackages: profile.packages,
+    existing: profile.packages,
+    expectedPublishes: 0,
+  })
+  runScenario(profile, program, 'bootstrap waits for registry visibility', {
+    bootstrapPackages: profile.packages,
+    delayedVisibility: profile.packages[0],
     existing: profile.packages,
     expectedPublishes: 0,
   })
@@ -47,7 +50,7 @@ for (const profile of profiles) {
   })
   if (profile.packages.length > 1) {
     runScenario(profile, program, 'mixed package sets recover safely', {
-      allowBootstrap: true,
+      bootstrapPackages: profile.packages.slice(0, 1),
       existing: profile.packages.slice(0, 1),
       expectedPublishes: profile.packages.length - 1,
     })
@@ -64,13 +67,13 @@ for (const profile of profiles) {
     expectedError: 'did not expose the required bytes',
   })
   runScenario(profile, program, 'later provenance-free versions fail', {
-    allowBootstrap: true,
+    bootstrapPackages: profile.packages,
     existing: profile.packages,
     extraVersion: profile.packages[0],
     expectedError: 'is not the first package version and has no provenance',
   })
   runScenario(profile, program, 'bootstrap status is rechecked', {
-    allowBootstrap: true,
+    bootstrapPackages: profile.packages,
     existing: profile.packages,
     laterVersionDuringVerification: profile.packages[0],
     expectedError: 'did not expose the required bytes',
@@ -127,6 +130,8 @@ function runScenario(profile, program, scenario, options) {
       if (options.extraVersion === pkg.name) versions.push('1.0.1')
       return [pkg.name, {
         versions,
+        visibilityViews: 0,
+        visibleAfter: options.delayedVisibility === pkg.name ? 3 : 0,
         versionViews: 0,
         addLaterVersion: options.laterVersionDuringVerification === pkg.name,
         tags: { latest: options.wrongTag === pkg.name ? '0.9.0' : version },
@@ -156,12 +161,15 @@ function runScenario(profile, program, scenario, options) {
       encoding: 'utf8',
       env: {
         ...process.env,
-        ALLOW_BOOTSTRAP: options.allowBootstrap ? 'true' : 'false',
+        ALLOW_BOOTSTRAP: profile.name === 'library' && options.bootstrapPackages?.includes(profile.packages[0]) ? 'true' : 'false',
+        BOOTSTRAP_PACKAGES: profile.name === 'library-monorepo' ? (options.bootstrapPackages ?? []).join(',') : '',
         PATH: `${binDir}:${process.env.PATH}`,
         FAKE_NPM_STATE: statePath,
         GITHUB_OUTPUT: outputPath,
         GITHUB_STEP_SUMMARY: join(root, 'summary.md'),
         RELEASE_VERSION: version,
+        REGISTRY_POLL_ATTEMPTS: '5',
+        REGISTRY_POLL_DELAY_MS: '0',
       },
     })
     const diagnostic = `${result.stdout}\n${result.stderr}`
@@ -223,6 +231,12 @@ if (args[0] === 'view') {
   const name = match ? match[1] : spec
   const version = match?.[2]
   const pkg = state.packages[name]
+  if (pkg && pkg.visibilityViews < pkg.visibleAfter) {
+    pkg.visibilityViews += 1
+    save()
+    process.stderr.write('E404 404 Not Found\\n')
+    process.exit(1)
+  }
   const release = version ? pkg?.releases?.[version] : null
   let value
   if (field === 'dist.shasum') value = release?.shasum

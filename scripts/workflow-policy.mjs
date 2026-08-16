@@ -74,11 +74,12 @@ function checkInertPrivilegedJob(path, jobName, job) {
 
 export function checkPublishWorkflow(path, workflow) {
   const failures = []
-  const certify = workflow.jobs.certify
+  const verifyCandidate = workflow.jobs['verify-candidate']
   const publish = workflow.jobs.publish
   const release = workflow.jobs['github-release']
   if (!samePermissions(workflow.permissions, {})) failures.push(`${path} must deny permissions by default.`)
-  if (!samePermissions(certify?.permissions, { contents: 'read' })) failures.push(`${path} certify job must have only contents: read.`)
+  if (!samePermissions(verifyCandidate?.permissions, { actions: 'read', contents: 'read' })) failures.push(`${path} candidate verification permissions differ from the read-only contract.`)
+  failures.push(...checkInertPrivilegedJob(path, 'candidate verification', verifyCandidate))
   if (!samePermissions(publish?.permissions, { actions: 'read', contents: 'read', 'id-token': 'write' })) failures.push(`${path} publish job permissions differ from the protected contract.`)
   if (!samePermissions(release?.permissions, { actions: 'read', contents: 'write' })) failures.push(`${path} GitHub release job permissions differ from the protected contract.`)
   if (publish?.environment !== 'npm') failures.push(`${path} publish job must use the npm environment.`)
