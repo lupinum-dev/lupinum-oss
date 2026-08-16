@@ -47,8 +47,12 @@ for (const path of required) {
 
 const packageJson = JSON.parse(await text("package.json"));
 const vercel = JSON.parse(await text("docs/vercel.json"));
+const expectedVercelIgnoreCommand = 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml';
 if (vercel.git?.deploymentEnabled !== true) {
   failures.push("The handbook must report a Vercel status for every pull-request commit.");
+}
+if (vercel.ignoreCommand !== expectedVercelIgnoreCommand) {
+  failures.push("The handbook must skip deployments that cannot affect it.");
 }
 for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
   if (!packageJson.scripts?.[command]) failures.push(`Missing root command: ${command}`);
