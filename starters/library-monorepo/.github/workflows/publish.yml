@@ -3,34 +3,46 @@ on:
   workflow_dispatch:
     inputs:
       version: { description: 'Exact fixed version from all package manifests', required: true, type: string }
-      allow_bootstrap: { description: 'Authorize exact first-version recovery without npm provenance', required: false, default: false, type: boolean }
+      bootstrap_packages: { description: 'Comma-separated first-version packages already published from this candidate', required: false, default: '', type: string }
 permissions: {}
 concurrency: { group: publish, cancel-in-progress: false }
 jobs:
-  certify:
+  verify-candidate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions: { contents: read }
+    timeout-minutes: 10
+    permissions: { actions: read, contents: read }
     steps:
-      - name: Require main and valid version
-        env: { RELEASE_REF: "${{ github.ref }}", RELEASE_VERSION: "${{ inputs.version }}" }
+      - name: Find successful current-main CI
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: "${{ github.ref }}"
+          RELEASE_VERSION: "${{ inputs.version }}"
         run: |
           test "$RELEASE_REF" = refs/heads/main
           node -e "if (!/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RELEASE_VERSION)) throw new Error('Invalid version')"
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with: { persist-credentials: false }
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with: { node-version: 24.18.0, package-manager-cache: false }
-      - run: corepack enable pnpm && corepack prepare pnpm@11.21.0 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm release:verify
-      - run: test "$(node -p "require('./release-artifacts/release.json').version")" = "${{ inputs.version }}"
+          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=20" --jq '.workflow_runs | map(select(.conclusion == "success" and .head_branch == "main")) | first | .id // empty')"
+          test -n "$run_id"
+          printf 'run-id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-candidate
+          path: release-artifacts
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.ci.outputs.run-id }}
+      - name: Verify retained candidate
+        working-directory: release-artifacts
+        env: { RELEASE_VERSION: "${{ inputs.version }}" }
+        run: |
+          sha256sum --check --strict SHA256SUMS
+          test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
+          test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with: { name: certified-release, path: release-artifacts, if-no-files-found: error, retention-days: 14 }
+        with: { name: verified-release, path: release-artifacts, if-no-files-found: error, retention-days: 14 }
   publish:
-    needs: certify
+    needs: verify-candidate
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     environment: npm
     permissions: { actions: read, contents: read, id-token: write }
     outputs:
@@ -41,11 +53,11 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24.18.0, registry-url: 'https://registry.npmjs.org', package-manager-cache: false }
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with: { name: certified-release, path: release-artifacts }
+        with: { name: verified-release, path: release-artifacts }
       - name: Verify and publish fixed package set
         id: publish
         working-directory: release-artifacts
-        env: { ALLOW_BOOTSTRAP: "${{ inputs.allow_bootstrap }}", RELEASE_VERSION: "${{ inputs.version }}" }
+        env: { BOOTSTRAP_PACKAGES: "${{ inputs.bootstrap_packages }}", RELEASE_VERSION: "${{ inputs.version }}" }
         run: |
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
@@ -64,6 +76,15 @@ jobs:
           }
           const expectedTag = record.version.includes('-') ? 'next' : 'latest'
           if (record.distTag !== expectedTag) throw new Error('Unexpected distribution tag.')
+          const maxAttempts = Number(process.env.REGISTRY_POLL_ATTEMPTS || 240)
+          if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error('Invalid registry poll attempt count.')
+          const pollDelayMs = Number(process.env.REGISTRY_POLL_DELAY_MS || 5000)
+          if (!Number.isInteger(pollDelayMs) || pollDelayMs < 0) throw new Error('Invalid registry poll delay.')
+          const bootstrapPackages = new Set((process.env.BOOTSTRAP_PACKAGES || '').split(',').map(value => value.trim()).filter(Boolean))
+          if (bootstrapPackages.size !== (process.env.BOOTSTRAP_PACKAGES || '').split(',').map(value => value.trim()).filter(Boolean).length) throw new Error('Bootstrap package names must be unique.')
+          for (const name of bootstrapPackages) {
+            if (!record.packages.some(pkg => pkg.name === name)) throw new Error(`Unknown bootstrap package: ${name}.`)
+          }
           const fail = message => { throw new Error(message) }
           const run = (args, inherit = false) => spawnSync('npm', args, {
             encoding: 'utf8',
@@ -78,7 +99,14 @@ jobs:
           const modes = new Map()
           for (const pkg of record.packages) {
             const spec = `${pkg.name}@${pkg.version}`
-            const existing = view(spec, 'dist.shasum')
+            let existing = view(spec, 'dist.shasum')
+            if (!existing && bootstrapPackages.has(pkg.name)) {
+              for (let attempt = 0; attempt < maxAttempts && !existing; attempt += 1) {
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs)
+                existing = view(spec, 'dist.shasum')
+              }
+              if (!existing) fail(`${spec} was authorized for bootstrap recovery but is still not visible.`)
+            }
             if (existing && existing !== pkg.shasum) fail(`${spec} exists with different bytes.`)
             if (existing) {
               const attestations = view(spec, 'dist.attestations')
@@ -87,7 +115,7 @@ jobs:
               if (!attestations && (versions.length !== 1 || versions[0] !== pkg.version)) {
                 fail(`${spec} is not the first package version and has no provenance.`)
               }
-              if (!attestations && process.env.ALLOW_BOOTSTRAP !== 'true') {
+              if (!attestations && !bootstrapPackages.has(pkg.name)) {
                 fail(`${spec} requires explicit bootstrap authorization.`)
               }
               modes.set(pkg.name, attestations ? 'oidc' : 'bootstrap')
@@ -103,7 +131,7 @@ jobs:
           for (const pkg of record.packages) {
             const spec = `${pkg.name}@${pkg.version}`
             let verified = false
-            for (let attempt = 0; attempt < 12; attempt += 1) {
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
               const shasum = view(spec, 'dist.shasum')
               const attestations = view(spec, 'dist.attestations')
               const channel = view(pkg.name, `dist-tags.${record.distTag}`)
@@ -118,14 +146,14 @@ jobs:
                 verified = true
                 break
               }
-              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs)
             }
             if (!verified) fail(`${spec} did not expose the required bytes, provenance mode, and ${record.distTag}.`)
           }
           const publicationModes = Object.fromEntries(modes)
-          const bootstrapPackages = [...modes].filter(([, mode]) => mode === 'bootstrap').map(([name]) => name)
-          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap=${String(bootstrapPackages.length > 0)}\n`)
-          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap-packages=${bootstrapPackages.join(',')}\n`)
+          const publishedBootstrapPackages = [...modes].filter(([, mode]) => mode === 'bootstrap').map(([name]) => name)
+          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap=${String(publishedBootstrapPackages.length > 0)}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap-packages=${publishedBootstrapPackages.join(',')}\n`)
           appendFileSync(process.env.GITHUB_OUTPUT, `modes=${JSON.stringify(publicationModes)}\n`)
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nPublication modes: ${JSON.stringify(publicationModes)}.\n`)
           NODE
@@ -136,7 +164,7 @@ jobs:
     permissions: { actions: read, contents: write }
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with: { name: certified-release, path: release-artifacts }
+        with: { name: verified-release, path: release-artifacts }
       - name: Create release from certified package set
         env:
           GH_TOKEN: ${{ github.token }}

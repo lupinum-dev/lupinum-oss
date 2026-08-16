@@ -29,8 +29,9 @@ Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged rele
 - Do not add a central publication service or shared runtime package.
 - Keep starter publication workflows local and reviewable.
 - Pin GitHub Actions to full commit SHAs.
-- Use the repository root as the Vercel Root Directory because `docs/` belongs
-  to this pnpm workspace. Keep `vercel.json` at the repository root.
+- Use `docs/` as the Vercel Root Directory. Keep `vercel.json` in `docs/` and
+  enable source files outside the Root Directory because the site uses this
+  pnpm workspace.
 - Keep the npm bootstrap ceremony explicit. Do not pretend the first package version has OIDC provenance.
 - Use `latest` for stable releases and `next` for prereleases.
 - Do not silently bypass the 24-hour dependency quarantine.

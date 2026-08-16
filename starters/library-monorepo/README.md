@@ -46,8 +46,8 @@ const item = createItem('one', 'First item')
 
 Read the complete documentation at [{{DOMAIN}}](https://{{DOMAIN}}).
 
-Vercel deploys the documentation from the repository root because `docs/`
-depends on packages in this workspace.
+Vercel deploys the documentation from `docs/`. Enable source files outside the
+Root Directory because the site depends on packages in this workspace.
 
 ## Contributing and development
 

@@ -44,8 +44,8 @@ for (const profile of profiles) {
     "package.json",
     "pnpm-workspace.yaml",
     "setup.mjs",
-    "vercel.json",
   ];
+  required.push(profile === "app" ? "vercel.json" : "docs/vercel.json");
   if (profile !== "app") required.push(".github/workflows/package-preview.yml", ".github/workflows/publish.yml", "scripts/verify-packed-consumer.mjs");
   const missingRequired = [];
   for (const path of required) {
@@ -60,6 +60,8 @@ for (const profile of profiles) {
     if (!manifest.scripts?.[command]) failures.push(`${profile} is missing command ${command}`);
   }
   const workspace = await readFile(new URL("pnpm-workspace.yaml", base), "utf8");
+  const renovate = JSON.parse(await readFile(new URL("renovate.json", base), "utf8"));
+  if (renovate.minimumReleaseAge !== "1 day") failures.push(`${profile} Renovate must match the 24-hour pnpm quarantine`);
   for (const setting of ["minimumReleaseAge: 1440", "minimumReleaseAgeStrict: true", "minimumReleaseAgeIgnoreMissingTime: false"]) {
     if (!workspace.includes(setting)) failures.push(`${profile} is missing ${setting}`);
   }
@@ -110,6 +112,9 @@ for (const profile of profiles) {
     failures.push(...checkPublishWorkflow(`${profile}/.github/workflows/publish.yml`, publish));
     for (const boundary of [
       "actions/download-artifact@",
+      "head_sha=$GITHUB_SHA",
+      "release-candidate",
+      "verified-release",
       "--provenance",
       "--ignore-scripts",
       "dist.shasum",
@@ -123,6 +128,9 @@ for (const profile of profiles) {
     ]) {
       if (!publishSource.includes(boundary)) failures.push(`${profile} publish workflow is missing ${boundary}`);
     }
+    if (publishSource.includes("pnpm install") || publishSource.includes("pnpm release:verify")) {
+      failures.push(`${profile} publish workflow rebuilds instead of consuming the retained main CI candidate`);
+    }
     const packer = await readFile(new URL("scripts/pack-release.mjs", base), "utf8");
     for (const field of ["sha256", "shasum", "distTag", "sourceSha", "GITHUB_SHA"]) {
       if (!packer.includes(field)) failures.push(`${profile} release manifest is missing ${field}`);
@@ -132,12 +140,14 @@ for (const profile of profiles) {
   const ciPath = new URL(".github/workflows/ci.yml", base).pathname;
   const { workflow: ci } = await readWorkflow(ciPath);
   failures.push(...checkCiWorkflow(`${profile}/.github/workflows/ci.yml`, ci));
-  if (await exists(new URL("docs/vercel.json", base))) failures.push(`${profile} keeps Vercel configuration below its deployment root`);
-  const vercel = JSON.parse(await readFile(new URL("vercel.json", base), "utf8"));
+  const vercelPath = profile === "app" ? "vercel.json" : "docs/vercel.json";
+  const wrongVercelPath = profile === "app" ? "docs/vercel.json" : "vercel.json";
+  if (await exists(new URL(wrongVercelPath, base))) failures.push(`${profile} keeps Vercel configuration outside its deployment root`);
+  const vercel = JSON.parse(await readFile(new URL(vercelPath, base), "utf8"));
   if (profile === "app") {
     if (vercel.buildCommand !== "pnpm build") failures.push("app Vercel build must run from the repository root");
-  } else if (!vercel.buildCommand?.includes("docs/.vercel/output .vercel/output")) {
-    failures.push(`${profile} Vercel build does not preserve the Nuxt Build Output API result`);
+  } else if (vercel.buildCommand !== "pnpm --dir .. docs:build" || vercel.outputDirectory !== null) {
+    failures.push(`${profile} Vercel build must use the parent workspace command from docs/`);
   }
 
   const output = join(materializedRoot, profile);
@@ -162,6 +172,13 @@ for (const profile of profiles) {
   if (generated.status !== 0) {
     failures.push(`${profile} setup failed: ${(generated.stderr || generated.stdout).trim()}`);
     continue;
+  }
+  if (!(await exists(join(output, "scripts/verify-action-shas.mjs")))) {
+    failures.push(`${profile} generated project is missing upstream Action SHA verification`);
+  }
+  const generatedCi = await readFile(join(output, ".github/workflows/ci.yml"), "utf8");
+  if (!generatedCi.includes("node scripts/verify-action-shas.mjs") || !generatedCi.includes("GITHUB_TOKEN")) {
+    failures.push(`${profile} CI does not verify that pinned Action commits exist upstream`);
   }
   for (const forbidden of ["setup.mjs", "template.json"]) {
     if (await exists(new URL(`${profile}/${forbidden}`, new URL(`file://${materializedRoot}/`)))) failures.push(`${profile} generated ${forbidden}`);

@@ -20,35 +20,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  certify:
+  verify-candidate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions: { contents: read }
+    timeout-minutes: 10
+    permissions: { actions: read, contents: read }
     steps:
-      - name: Require current main and valid version
-        env: { RELEASE_REF: "${{ github.ref }}", RELEASE_VERSION: "${{ inputs.version }}" }
+      - name: Find successful current-main CI
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REF: "${{ github.ref }}"
+          RELEASE_VERSION: "${{ inputs.version }}"
         run: |
           test "$RELEASE_REF" = refs/heads/main
           node -e "if (!/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RELEASE_VERSION)) throw new Error('Invalid version')"
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with: { persist-credentials: false }
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with: { node-version: 24.18.0, package-manager-cache: false }
-      - run: corepack enable pnpm && corepack prepare pnpm@11.21.0 --activate
-      - run: pnpm install --frozen-lockfile
-      - run: test "$(node -p "require('./package.json').version")" = "${{ inputs.version }}"
-      - run: pnpm release:verify
+          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=20" --jq '.workflow_runs | map(select(.conclusion == "success" and .head_branch == "main")) | first | .id // empty')"
+          test -n "$run_id"
+          printf 'run-id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: release-candidate
+          path: release-artifacts
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.ci.outputs.run-id }}
+      - name: Verify retained candidate
+        working-directory: release-artifacts
+        env: { RELEASE_VERSION: "${{ inputs.version }}" }
+        run: |
+          sha256sum --check --strict SHA256SUMS
+          test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
+          test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: certified-release
+          name: verified-release
           path: release-artifacts
           if-no-files-found: error
           retention-days: 14
 
   publish:
-    needs: certify
+    needs: verify-candidate
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     environment: npm
     permissions:
       actions: read
@@ -62,7 +74,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24.18.0, registry-url: 'https://registry.npmjs.org', package-manager-cache: false }
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with: { name: certified-release, path: release-artifacts }
+        with: { name: verified-release, path: release-artifacts }
       - name: Verify and publish inert artifact
         id: publish
         working-directory: release-artifacts
@@ -95,7 +107,18 @@ jobs:
           const record = JSON.parse(readFileSync('release.json', 'utf8'))
           const packageName = '{{PACKAGE_NAME}}'
           const spec = `${packageName}@${record.version}`
-          const existing = view(spec, 'dist.shasum')
+          const maxAttempts = Number(process.env.REGISTRY_POLL_ATTEMPTS || 240)
+          if (!Number.isInteger(maxAttempts) || maxAttempts < 1) fail('Invalid registry poll attempt count.')
+          const pollDelayMs = Number(process.env.REGISTRY_POLL_DELAY_MS || 5000)
+          if (!Number.isInteger(pollDelayMs) || pollDelayMs < 0) fail('Invalid registry poll delay.')
+          let existing = view(spec, 'dist.shasum')
+          if (!existing && process.env.ALLOW_BOOTSTRAP === 'true') {
+            for (let attempt = 0; attempt < maxAttempts && !existing; attempt += 1) {
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs)
+              existing = view(spec, 'dist.shasum')
+            }
+            if (!existing) fail(`${spec} was authorized for bootstrap recovery but is still not visible.`)
+          }
           if (existing && existing !== record.shasum) fail(`${spec} exists with different bytes.`)
           let mode
           if (existing) {
@@ -117,7 +140,7 @@ jobs:
             if (result.status !== 0) fail(`npm publish failed for ${spec}.`)
             mode = 'oidc'
           }
-          for (let attempt = 0; attempt < 12; attempt += 1) {
+          for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
             const shasum = view(spec, 'dist.shasum')
             const attestations = view(spec, 'dist.attestations')
             const channel = view(packageName, `dist-tags.${record.distTag}`)
@@ -136,7 +159,7 @@ jobs:
               appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nPublication mode: ${mode}.\n`)
               process.exit(0)
             }
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000)
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs)
           }
           fail(`${spec} did not expose the required bytes, provenance mode, and ${record.distTag}.`)
           NODE
@@ -150,7 +173,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with: { name: certified-release, path: release-artifacts }
+        with: { name: verified-release, path: release-artifacts }
       - name: Create release from certified artifact
         env:
           GH_TOKEN: ${{ github.token }}

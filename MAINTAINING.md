@@ -16,7 +16,7 @@ Use one exact temporary exclusion only for a reviewed Lupinum release or an urge
 
 ## Documentation deployment
 
-Vercel uses the repository root because the documentation app belongs to this pnpm workspace. The root `vercel.json` installs the workspace and builds `docs/`. The canonical domain is `oss.lupinum.com`. Run `pnpm docs:build` before handoff and verify the production acceptance checklist after significant changes.
+Vercel uses `docs/` as the Root Directory. Enable source files outside the Root Directory because the site uses the parent pnpm workspace. `docs/vercel.json` calls the canonical root documentation build. The canonical domain is `oss.lupinum.com`. Run `pnpm docs:build` before handoff and verify the production acceptance checklist after significant changes.
 
 ## Handbook releases
 
