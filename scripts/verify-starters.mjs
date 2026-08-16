@@ -177,8 +177,11 @@ for (const profile of profiles) {
     failures.push(`${profile} generated project is missing upstream Action SHA verification`);
   }
   const generatedCi = await readFile(join(output, ".github/workflows/ci.yml"), "utf8");
-  if (!generatedCi.includes("node scripts/verify-action-shas.mjs") || !generatedCi.includes("GITHUB_TOKEN")) {
+  if (!generatedCi.includes("node scripts/verify-action-shas.mjs")) {
     failures.push(`${profile} CI does not verify that pinned Action commits exist upstream`);
+  }
+  if (generatedCi.includes("GITHUB_TOKEN")) {
+    failures.push(`${profile} CI must keep Action verification tokenless`);
   }
   for (const forbidden of ["setup.mjs", "template.json"]) {
     if (await exists(new URL(`${profile}/${forbidden}`, new URL(`file://${materializedRoot}/`)))) failures.push(`${profile} generated ${forbidden}`);

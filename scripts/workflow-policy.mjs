@@ -23,6 +23,9 @@ export function checkWorkflow(path, workflow) {
       }
     }
     for (const step of job.steps ?? []) {
+      if (String(step.run ?? '').trim() === 'node scripts/verify-action-shas.mjs' && step.env?.GITHUB_TOKEN) {
+        failures.push(`${path} job ${jobName} gives Action verification a GitHub token.`)
+      }
       if (!step.uses) continue
       if (!actionReference.test(step.uses)) failures.push(`${path} uses a mutable action reference: ${step.uses}`)
       if (step.uses.startsWith('actions/checkout@') && step.with?.['persist-credentials'] !== false) {
