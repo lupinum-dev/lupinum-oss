@@ -128,10 +128,11 @@ jobs:
               modes.set(pkg.name, 'oidc')
             }
           }
-          for (const pkg of record.packages) {
-            const spec = `${pkg.name}@${pkg.version}`
-            let verified = false
-            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          const verifiedPackages = new Set()
+          for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            for (const pkg of record.packages) {
+              if (verifiedPackages.has(pkg.name)) continue
+              const spec = `${pkg.name}@${pkg.version}`
               const shasum = view(spec, 'dist.shasum')
               const attestations = view(spec, 'dist.attestations')
               const channel = view(pkg.name, `dist-tags.${record.distTag}`)
@@ -143,12 +144,18 @@ jobs:
                 shasum === pkg.shasum && channel === pkg.version && remainsFirstVersion &&
                 (mode === 'bootstrap' || (mode === 'oidc' && attestations))
               ) {
-                verified = true
-                break
+                verifiedPackages.add(pkg.name)
               }
+            }
+            if (verifiedPackages.size === record.packages.length) break
+            if (attempt + 1 < maxAttempts) {
               Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs)
             }
-            if (!verified) fail(`${spec} did not expose the required bytes, provenance mode, and ${record.distTag}.`)
+          }
+          for (const pkg of record.packages) {
+            if (!verifiedPackages.has(pkg.name)) {
+              fail(`${pkg.name}@${pkg.version} did not expose the required bytes, provenance mode, and ${record.distTag}.`)
+            }
           }
           const publicationModes = Object.fromEntries(modes)
           const publishedBootstrapPackages = [...modes].filter(([, mode]) => mode === 'bootstrap').map(([name]) => name)

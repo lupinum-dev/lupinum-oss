@@ -56,6 +56,9 @@ for (const profile of profiles) {
   }
   if (missingRequired.length) continue;
   const manifest = JSON.parse(await readFile(new URL("package.json", base), "utf8"));
+  if (manifest.devDependencies?.yaml !== "2.9.0") {
+    failures.push(`${profile} must declare the workflow parser directly`);
+  }
   for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
     if (!manifest.scripts?.[command]) failures.push(`${profile} is missing command ${command}`);
   }
@@ -130,6 +133,17 @@ for (const profile of profiles) {
     }
     if (publishSource.includes("pnpm install") || publishSource.includes("pnpm release:verify")) {
       failures.push(`${profile} publish workflow rebuilds instead of consuming the retained main CI candidate`);
+    }
+    if (profile === "library-monorepo") {
+      if (!publishSource.includes("const verifiedPackages = new Set()")) {
+        failures.push("library-monorepo must share one registry polling budget");
+      }
+      if (publishSource.includes("let verified = false")) {
+        failures.push("library-monorepo must not restart registry polling for each package");
+      }
+      if (!publishSource.includes("if (attempt + 1 < maxAttempts)")) {
+        failures.push("library-monorepo must not sleep after its final registry attempt");
+      }
     }
     const packer = await readFile(new URL("scripts/pack-release.mjs", base), "utf8");
     for (const field of ["sha256", "shasum", "distTag", "sourceSha", "GITHUB_SHA"]) {
