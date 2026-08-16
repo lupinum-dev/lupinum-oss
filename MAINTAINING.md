@@ -18,6 +18,8 @@ Use one exact temporary exclusion only for a reviewed Lupinum release or an urge
 
 Vercel uses `docs/` as the Root Directory. Enable source files outside the Root Directory because the site uses the parent pnpm workspace. `docs/vercel.json` calls the canonical root documentation build. The canonical domain is `oss.lupinum.com`. Run `pnpm docs:build` before handoff and verify the production acceptance checklist after significant changes.
 
+Keep the Vercel ignore command aligned with the site's real dependency boundary. It must compare the previous successful deployment with `HEAD`, skip unrelated changes, and build when the previous SHA is missing. Check Vercel usage each quarter. Prefer preventing an unnecessary deployment over making it slightly faster.
+
 ## Handbook releases
 
 This repository does not publish to npm. Create a GitHub release only for a meaningful handbook, starter, or skill milestone. Generate release notes with the pinned Changelogen version and use the protected GitHub workflow when it exists.
