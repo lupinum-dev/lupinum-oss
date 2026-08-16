@@ -161,6 +161,14 @@ for (const profile of profiles) {
   if (vercel.git?.deploymentEnabled !== true) {
     failures.push(`${profile} must report a Vercel status for every pull-request commit`);
   }
+  const expectedIgnoreCommand = profile === "app"
+    ? 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- app public nuxt.config.ts package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json'
+    : profile === "library"
+      ? 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../src ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../tsconfig.json'
+      : 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../packages ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../tsconfig.json';
+  if (vercel.ignoreCommand !== expectedIgnoreCommand) {
+    failures.push(`${profile} must skip Vercel builds that cannot affect the deployed site`);
+  }
   if (profile === "app") {
     if (vercel.buildCommand !== "pnpm build") failures.push("app Vercel build must run from the repository root");
   } else if (vercel.buildCommand !== "pnpm --dir .. docs:build" || vercel.outputDirectory !== null) {

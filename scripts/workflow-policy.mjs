@@ -45,6 +45,7 @@ function samePermissions(actual, expected) {
 
 export function checkPreviewWorkflow(path, workflow) {
   const failures = []
+  if (workflow.concurrency?.['cancel-in-progress'] !== true) failures.push(`${path} preview must cancel superseded runs.`)
   const job = workflow.jobs.preview
   if (!samePermissions(workflow.permissions, { contents: 'read' }) || job?.permissions) failures.push(`${path} preview must have only contents: read.`)
   if (!String(job?.if ?? '').includes('github.event.pull_request.head.repo.full_name == github.repository')) failures.push(`${path} preview must reject automatic fork execution.`)
@@ -57,6 +58,7 @@ export function checkPreviewWorkflow(path, workflow) {
 
 export function checkCiWorkflow(path, workflow) {
   const failures = []
+  if (workflow.concurrency?.['cancel-in-progress'] !== true) failures.push(`${path} CI must cancel superseded runs.`)
   if (!samePermissions(workflow.permissions, { contents: 'read' })) failures.push(`${path} CI must have only contents: read.`)
   for (const [jobName, job] of Object.entries(workflow.jobs)) {
     if (job.permissions) failures.push(`${path} CI job ${jobName} must not override workflow permissions.`)
@@ -81,6 +83,7 @@ export function checkPublishWorkflow(path, workflow) {
   const publish = workflow.jobs.publish
   const release = workflow.jobs['github-release']
   if (!samePermissions(workflow.permissions, {})) failures.push(`${path} must deny permissions by default.`)
+  if (workflow.concurrency?.['cancel-in-progress'] !== false) failures.push(`${path} must not cancel an active publication.`)
   if (!samePermissions(verifyCandidate?.permissions, { actions: 'read', contents: 'read' })) failures.push(`${path} candidate verification permissions differ from the read-only contract.`)
   failures.push(...checkInertPrivilegedJob(path, 'candidate verification', verifyCandidate))
   if (!samePermissions(publish?.permissions, { actions: 'read', contents: 'read', 'id-token': 'write' })) failures.push(`${path} publish job permissions differ from the protected contract.`)
