@@ -27,8 +27,11 @@ for (const root of roots) {
     const workflow = parse(await readFile(path, 'utf8'))
     for (const job of Object.values(workflow.jobs ?? {})) {
       for (const step of job.steps ?? []) {
-        const match = String(step.uses ?? '').match(/^([^/]+\/[^/@]+)(?:\/[^@]+)?@([0-9a-f]{40})$/u)
-        if (match) references.add(`${match[1]}@${match[2]}`)
+        const value = String(step.uses ?? '')
+        if (!value || value.startsWith('./')) continue
+        const match = value.match(/^([^/]+\/[^/@]+)(?:\/[^@]+)?@([0-9a-f]{40})$/u)
+        if (!match) throw new Error(`${path}: external action must use a full commit SHA: ${value}`)
+        references.add(`${match[1]}@${match[2]}`)
       }
     }
   }
