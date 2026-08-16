@@ -46,6 +46,10 @@ for (const path of required) {
 }
 
 const packageJson = JSON.parse(await text("package.json"));
+const vercel = JSON.parse(await text("docs/vercel.json"));
+if (vercel.git?.deploymentEnabled !== true) {
+  failures.push("The handbook must report a Vercel status for every pull-request commit.");
+}
 for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
   if (!packageJson.scripts?.[command]) failures.push(`Missing root command: ${command}`);
 }
