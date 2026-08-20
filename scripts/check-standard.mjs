@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parse } from "yaml";
@@ -27,6 +28,7 @@ const required = [
   "scripts/verify-action-shas.mjs",
   "scripts/workflow-policy.mjs",
   "docs/vercel.json",
+  "docs/scripts/vercel-ignore.mjs",
 ];
 
 async function text(path) {
@@ -49,12 +51,24 @@ for (const path of required) {
 const packageJson = JSON.parse(await text("package.json"));
 const starterSmoke = parse(await text(".github/workflows/starter-smoke.yml"));
 const vercel = JSON.parse(await text("docs/vercel.json"));
-const expectedVercelIgnoreCommand = 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml';
+const expectedVercelIgnoreCommand = "node scripts/vercel-ignore.mjs";
 if (vercel.git?.deploymentEnabled !== true) {
   failures.push("The handbook must report a Vercel status for every pull-request commit.");
 }
 if (vercel.ignoreCommand !== expectedVercelIgnoreCommand) {
   failures.push("The handbook must skip deployments that cannot affect it.");
+}
+for (const scenario of [
+  { sha: "0000000000000000000000000000000000000000", status: 1, name: "missing baseline" },
+  { sha: "HEAD", status: 0, name: "unchanged baseline" },
+]) {
+  const result = spawnSync("sh", ["-c", vercel.ignoreCommand], {
+    cwd: new URL("docs/", root),
+    env: { ...process.env, VERCEL_GIT_PREVIOUS_SHA: scenario.sha },
+  });
+  if (result.status !== scenario.status) {
+    failures.push(`The handbook Vercel filter failed the ${scenario.name} fixture.`);
+  }
 }
 for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
   if (!packageJson.scripts?.[command]) failures.push(`Missing root command: ${command}`);
