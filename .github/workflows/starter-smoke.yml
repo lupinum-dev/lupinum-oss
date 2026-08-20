@@ -16,8 +16,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: Classify changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      pull-requests: read
+    outputs:
+      starters: ${{ steps.paths.outputs.starters }}
+    steps:
+      - name: Select required lanes
+        id: paths
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const runAll = context.eventName !== 'pull_request'
+            const files = runAll
+              ? []
+              : await github.paginate(github.rest.pulls.listFiles, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.issue.number,
+                  per_page: 100,
+                })
+            const paths = files.map((file) => file.filename)
+            const starterUnrelated =
+              paths.length > 0 &&
+              paths.every((path) =>
+                /^(?:docs\/|skill\/|README\.md$|CONTRIBUTING\.md$|SECURITY\.md$|MAINTAINING\.md$|AGENTS\.md$|CLAUDE\.md$|LICENSE$)/u.test(path),
+              )
+            core.setOutput('starters', String(runAll || !starterUnrelated))
+
   verify:
     name: Verify ${{ matrix.profile }} starter
+    needs: classify
+    if: needs.classify.outputs.starters == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
@@ -70,11 +103,17 @@ jobs:
   gate:
     name: Starter smoke
     if: always()
-    needs: verify
+    needs:
+      - classify
+      - verify
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Require every starter profile to pass
         env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          STARTERS: ${{ needs.classify.outputs.starters }}
           MATRIX_RESULT: ${{ needs.verify.result }}
-        run: test "$MATRIX_RESULT" = success
+        run: |
+          test "$CLASSIFY_RESULT" = success
+          if [ "$STARTERS" = true ]; then test "$MATRIX_RESULT" = success; else test "$MATRIX_RESULT" = skipped; fi

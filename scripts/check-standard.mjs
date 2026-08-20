@@ -1,5 +1,6 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { parse } from "yaml";
 import { hasExactUrl } from "./url-contract.mjs";
 import { checkWorkflow, containsNpmCredential, readWorkflow } from "./workflow-policy.mjs";
 
@@ -46,6 +47,7 @@ for (const path of required) {
 }
 
 const packageJson = JSON.parse(await text("package.json"));
+const starterSmoke = parse(await text(".github/workflows/starter-smoke.yml"));
 const vercel = JSON.parse(await text("docs/vercel.json"));
 const expectedVercelIgnoreCommand = 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml';
 if (vercel.git?.deploymentEnabled !== true) {
@@ -59,6 +61,36 @@ for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
 }
 if (packageJson.private !== true) failures.push("The handbook workspace must stay private to npm.");
 if (packageJson.devDependencies?.changelogen !== "0.6.2") failures.push("Changelogen must be pinned to 0.6.2.");
+const starterClassifier = starterSmoke.jobs.classify.steps.find(
+  (step) => step.name === "Select required lanes",
+)?.with?.script;
+if (typeof starterClassifier !== "string") {
+  failures.push("Starter smoke must classify expensive pull-request lanes.");
+} else {
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  for (const scenario of [
+    { name: "handbook docs", event: "pull_request", paths: ["docs/content/docs/1.index.md"], starters: "false" },
+    { name: "starter source", event: "pull_request", paths: ["starters/library/package.json"], starters: "true" },
+    { name: "workflow policy", event: "pull_request", paths: [".github/workflows/starter-smoke.yml"], starters: "true" },
+    { name: "scheduled certification", event: "schedule", paths: [], starters: "true" },
+  ]) {
+    const outputs = new Map();
+    await new AsyncFunction("context", "github", "core", starterClassifier)(
+      { eventName: scenario.event, issue: { number: 1 }, repo: { owner: "lupinum-dev", repo: "lupinum-oss" } },
+      {
+        paginate: async () => scenario.paths.map((filename) => ({ filename })),
+        rest: { pulls: { listFiles() {} } },
+      },
+      { setOutput: (name, value) => outputs.set(name, value) },
+    );
+    if (outputs.get("starters") !== scenario.starters) {
+      failures.push(`Starter classification failed the ${scenario.name} fixture.`);
+    }
+  }
+}
+if (starterSmoke.jobs.gate.if !== "always()" || starterSmoke.jobs.gate.name !== "Starter smoke") {
+  failures.push("Starter smoke must expose one always-reported aggregate check.");
+}
 
 const workspace = await text("pnpm-workspace.yaml");
 const renovate = JSON.parse(await text("renovate.json"));
