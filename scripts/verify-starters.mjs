@@ -46,6 +46,7 @@ for (const profile of profiles) {
     "setup.mjs",
   ];
   required.push(profile === "app" ? "vercel.json" : "docs/vercel.json");
+  required.push(profile === "app" ? "scripts/vercel-ignore.mjs" : "docs/scripts/vercel-ignore.mjs");
   if (profile !== "app") required.push(".github/workflows/package-preview.yml", ".github/workflows/publish.yml", "scripts/verify-packed-consumer.mjs");
   const missingRequired = [];
   for (const path of required) {
@@ -161,13 +162,21 @@ for (const profile of profiles) {
   if (vercel.git?.deploymentEnabled !== true) {
     failures.push(`${profile} must report a Vercel status for every pull-request commit`);
   }
-  const expectedIgnoreCommand = profile === "app"
-    ? 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- app public nuxt.config.ts package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json'
-    : profile === "library"
-      ? 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../src ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../tsconfig.json'
-      : 'if [ -z "$VERCEL_GIT_PREVIOUS_SHA" ]; then exit 1; fi; git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . ../packages ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../tsconfig.json';
+  const expectedIgnoreCommand = "node scripts/vercel-ignore.mjs";
   if (vercel.ignoreCommand !== expectedIgnoreCommand) {
     failures.push(`${profile} must skip Vercel builds that cannot affect the deployed site`);
+  }
+  for (const scenario of [
+    { sha: "0000000000000000000000000000000000000000", status: 1, name: "missing baseline" },
+    { sha: "HEAD", status: 0, name: "unchanged baseline" },
+  ]) {
+    const result = spawnSync("sh", ["-c", vercel.ignoreCommand], {
+      cwd: new URL(profile === "app" ? "./" : "docs/", base),
+      env: { ...process.env, VERCEL_GIT_PREVIOUS_SHA: scenario.sha },
+    });
+    if (result.status !== scenario.status) {
+      failures.push(`${profile} Vercel filter failed the ${scenario.name} fixture`);
+    }
   }
   if (profile === "app") {
     if (vercel.buildCommand !== "pnpm build") failures.push("app Vercel build must run from the repository root");
