@@ -190,7 +190,7 @@ for (const profile of profiles) {
   if (
     profile !== "app"
     && (
-      vercel.git?.deploymentEnabled?.["*"] !== false
+      vercel.git?.deploymentEnabled?.["**"] !== false
       || vercel.git.deploymentEnabled.main !== true
       || Object.keys(vercel.git.deploymentEnabled).length !== 2
     )
