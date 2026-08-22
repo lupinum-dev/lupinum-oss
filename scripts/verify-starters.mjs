@@ -130,12 +130,15 @@ for (const profile of profiles) {
       "'/v13/deployments'",
       "gitSource:",
       "name: 'Vercel Preview'",
+      "getCollaboratorPermissionLevel",
+      "AbortSignal.timeout",
+      "ignored-build-step",
     ]) {
       if (!vercelPreviewSource.includes(boundary)) failures.push(`${profile} Vercel preview workflow is missing ${boundary}`);
     }
-    for (const forbidden of ["actions/checkout@", "vercel build", "vercel deploy", "pnpm install"]) {
-      if (vercelPreviewSource.includes(forbidden)) failures.push(`${profile} Vercel preview workflow executes untrusted code through ${forbidden}`);
-    }
+    const unsafePreviewStep = /actions\/checkout@|vercel build|vercel deploy|pnpm install|^\s*(?:-\s*)?run:/mu;
+    if (unsafePreviewStep.test(vercelPreviewSource)) failures.push(`${profile} Vercel preview workflow executes untrusted code`);
+    if (!unsafePreviewStep.test("      - run: pnpm test")) failures.push(`${profile} Vercel preview policy misses YAML list-item run steps`);
     for (const boundary of [
       "actions/download-artifact@",
       "head_sha=$GITHUB_SHA",
