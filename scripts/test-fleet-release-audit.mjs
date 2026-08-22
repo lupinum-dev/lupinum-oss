@@ -23,6 +23,8 @@ const fixed = evaluatePackageProfile("fixed-package-set", packages, [".changeset
 if (fixed.some((check) => check.status !== "PROVEN")) throw new Error("Valid fixed package profile failed.");
 if (evaluatePackageProfile("single-package", packages, []).every((check) => check.status !== "FAILED")) throw new Error("Invalid single package profile passed.");
 if (evaluateReleaseIntent("fixed-package-set", [".changeset/config.json"], "").status !== "PROVEN") throw new Error("Changeset intent failed.");
+if (evaluateReleaseIntent("single-package", ["CHANGELOG.md"], JSON.stringify({ scripts: { "release:prepare": "changelogen --bump" } })).status !== "PROVEN") throw new Error("Package-manifest Changelogen intent failed.");
+if (evaluateReleaseIntent("single-package", ["CHANGELOG.md"], JSON.stringify({ scripts: { "release:prepare": "custom-release" } })).status !== "FAILED") throw new Error("Single-package intent passed without Changelogen.");
 
 const workflows = evaluateReleaseWorkflows([{ path: ".github/workflows/release.yml", source: workflow }], "fixed-package-set");
 if (workflows.some((check) => check.status !== "PROVEN")) throw new Error(workflows[0].evidence);

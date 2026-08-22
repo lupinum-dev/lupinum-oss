@@ -33,7 +33,8 @@ function repositoryState(entry) {
   const tree = ghJson(`repos/${entry.repository}/git/trees/${sha}?recursive=1`).tree ?? [];
   const paths = tree.filter((item) => item.type === "blob").map((item) => item.path);
   const manifests = paths.filter((path) => /(?:^|\/)package\.json$/u.test(path) && !/^(?:apps|demo|docs|playground|starters|test|tests)\//u.test(path));
-  const packages = manifests.map((path) => JSON.parse(ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`))).filter((pkg) => pkg.private !== true && pkg.name && pkg.version);
+  const packageManifests = manifests.map((path) => JSON.parse(ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`)));
+  const packages = packageManifests.filter((pkg) => pkg.private !== true && pkg.name && pkg.version);
   const workflowFiles = paths.filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(path));
   const workflows = workflowFiles.map((path) => ({ path, source: ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`) }));
   const actions = ghJson(`repos/${entry.repository}/actions/permissions/workflow`);
@@ -53,7 +54,7 @@ function repositoryState(entry) {
   const tags = ghJson(`repos/${entry.repository}/git/matching-refs/tags/`).map((ref) => ref.ref.replace("refs/tags/", ""));
   const releases = ghJson(`repos/${entry.repository}/releases?per_page=100`).map((release) => release.tag_name);
   const changelogs = paths.filter((path) => /(?:^|\/)CHANGELOG\.md$/iu.test(path)).map((path) => ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`));
-  return { metadata, sha, paths, packages, workflows, actions, environment, secretNames, tags, releases, changelogs, currentMainCi: successfulRuns.some((run) => /(?:^|\/)ci\.ya?ml$/u.test(run.path ?? "")), mainProtected: activeRules.some((rule) => matchesRule(rule, "main")), tagsProtected: activeRules.some((rule) => matchesRule(rule, "tag")) };
+  return { metadata, sha, paths, packages, packageManifests, workflows, actions, environment, secretNames, tags, releases, changelogs, currentMainCi: successfulRuns.some((run) => /(?:^|\/)ci\.ya?ml$/u.test(run.path ?? "")), mainProtected: activeRules.some((rule) => matchesRule(rule, "main")), tagsProtected: activeRules.some((rule) => matchesRule(rule, "tag")) };
 }
 
 function registryState(name) {
@@ -92,7 +93,7 @@ async function main() {
       const state = repositoryState(entry);
       const checks = [
         ...evaluatePackageProfile(entry.releaseProfile, state.packages, state.paths),
-        evaluateReleaseIntent(entry.releaseProfile, state.paths, state.workflows.map((workflow) => workflow.source).join("\n")),
+        evaluateReleaseIntent(entry.releaseProfile, state.paths, [...state.workflows.map((workflow) => workflow.source), ...state.packageManifests.map((manifest) => JSON.stringify(manifest))].join("\n")),
         ...evaluateReleaseWorkflows(state.workflows, entry.releaseProfile),
         ...evaluateGitHubSecurity({ defaultBranch: state.metadata.default_branch, repositorySettings: state.metadata.allow_auto_merge === true && state.metadata.delete_branch_on_merge === true && state.metadata.security_and_analysis?.dependabot_security_updates?.status === "enabled" && state.metadata.security_and_analysis?.secret_scanning?.status === "enabled" && state.metadata.security_and_analysis?.secret_scanning_push_protection?.status === "enabled", actions: state.actions, environment: state.environment, secretNames: state.secretNames, mainSha: state.sha, currentMainCi: state.currentMainCi, mainProtected: state.mainProtected, tagsProtected: state.tagsProtected }, entry.releaseProfile),
       ];
