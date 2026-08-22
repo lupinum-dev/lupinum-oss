@@ -134,6 +134,8 @@ for (const profile of profiles) {
       "AbortSignal.timeout",
       "ignored-build-step",
       "reusedExistingPreview",
+      "sha=${encodeURIComponent(commitSha)}&state=READY",
+      "reportBestEffort",
     ]) {
       if (!vercelPreviewSource.includes(boundary)) failures.push(`${profile} Vercel preview workflow is missing ${boundary}`);
     }
