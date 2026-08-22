@@ -8,6 +8,11 @@ Create a focused branch, make the smallest complete change, run `pnpm verify`, a
 
 Open an issue first. State the proven problem, the repositories affected, the proposed rule, and the migration cost. Update the handbook before or with starter behavior. Do not silently rewrite existing repositories.
 
+The canonical on-demand Vercel workflow is
+`starters/_shared/vercel-preview.yml`. Run `pnpm shared:sync` after changing it,
+review every generated copy, and run `pnpm verify`. Existing repositories apply
+the reviewed copy through normal pull requests.
+
 ## Dependency updates
 
 Prefer Renovate. Wait until a new external version is at least 24 hours old. Run `pnpm audit:all` and `pnpm verify` before merge.
@@ -19,6 +24,10 @@ Use one exact temporary exclusion only for a reviewed Lupinum release or an urge
 Vercel uses `docs/` as the Root Directory. Enable source files outside the Root Directory because the site uses the parent pnpm workspace. `docs/vercel.json` calls the canonical root documentation build. The canonical domain is `oss.lupinum.com`. Run `pnpm docs:build` before handoff and verify the production acceptance checklist after significant changes.
 
 Keep the Vercel ignore command aligned with the site's real dependency boundary. It must compare the previous successful deployment with `HEAD`, skip unrelated changes, and build when the previous SHA is missing. Check Vercel usage each quarter. Prefer preventing an unnecessary deployment over making it slightly faster.
+
+This repository uses the same `/vercel` workflow as generated libraries. Its
+Vercel project must stay connected to `lupinum-dev/lupinum-oss`, deploy `main`
+automatically, and leave pull-request previews on demand.
 
 ## Handbook releases
 

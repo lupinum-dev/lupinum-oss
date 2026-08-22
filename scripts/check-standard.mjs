@@ -13,6 +13,7 @@ const required = [
   ".github/pull_request_template.md",
   ".github/workflows/codeql.yml",
   ".github/workflows/ci.yml",
+  ".github/workflows/vercel-preview.yml",
   ".coderabbit.yaml",
   "AGENTS.md",
   "CLAUDE.md",
@@ -26,7 +27,9 @@ const required = [
   "pnpm-workspace.yaml",
   "renovate.json",
   "scripts/verify-action-shas.mjs",
+  "scripts/shared-assets.mjs",
   "scripts/workflow-policy.mjs",
+  "starters/_shared/vercel-preview.yml",
   "docs/vercel.json",
   "docs/scripts/vercel-ignore.mjs",
 ];

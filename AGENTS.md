@@ -18,6 +18,7 @@ pnpm verify
 pnpm docs:build
 pnpm audit:all
 pnpm release:verify
+pnpm shared:check
 ```
 
 Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged release of this handbook repository.
@@ -28,6 +29,9 @@ Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged rele
 - Do not add `NPM_TOKEN`.
 - Do not add a central publication service or shared runtime package.
 - Keep starter publication workflows local and reviewable.
+- Maintain the on-demand Vercel preview workflow once in
+  `starters/_shared/vercel-preview.yml`. Run `pnpm shared:sync` after changes
+  and commit the exact repository-owned copies.
 - Pin GitHub Actions to full commit SHAs.
 - Use `docs/` as the Vercel Root Directory. Keep `vercel.json` in `docs/` and
   enable source files outside the Root Directory because the site uses this
