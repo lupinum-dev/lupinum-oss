@@ -133,6 +133,7 @@ for (const profile of profiles) {
       "getCollaboratorPermissionLevel",
       "AbortSignal.timeout",
       "ignored-build-step",
+      "reusedExistingPreview",
     ]) {
       if (!vercelPreviewSource.includes(boundary)) failures.push(`${profile} Vercel preview workflow is missing ${boundary}`);
     }
