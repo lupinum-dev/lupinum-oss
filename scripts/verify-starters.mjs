@@ -117,10 +117,25 @@ for (const profile of profiles) {
   } else {
     const previewPath = new URL(".github/workflows/package-preview.yml", base).pathname;
     const publishPath = new URL(".github/workflows/publish.yml", base).pathname;
+    const vercelPreviewPath = new URL(".github/workflows/vercel-preview.yml", base).pathname;
     const { workflow: preview } = await readWorkflow(previewPath);
     const { source: publishSource, workflow: publish } = await readWorkflow(publishPath);
+    const vercelPreviewSource = await readFile(vercelPreviewPath, "utf8");
     failures.push(...checkPreviewWorkflow(`${profile}/.github/workflows/package-preview.yml`, preview));
     failures.push(...checkPublishWorkflow(`${profile}/.github/workflows/publish.yml`, publish));
+    for (const boundary of [
+      "checks: write",
+      "cancel-in-progress: false",
+      "github.event.comment.body == '/vercel'",
+      "'/v13/deployments'",
+      "gitSource:",
+      "name: 'Vercel Preview'",
+    ]) {
+      if (!vercelPreviewSource.includes(boundary)) failures.push(`${profile} Vercel preview workflow is missing ${boundary}`);
+    }
+    for (const forbidden of ["actions/checkout@", "vercel build", "vercel deploy", "pnpm install"]) {
+      if (vercelPreviewSource.includes(forbidden)) failures.push(`${profile} Vercel preview workflow executes untrusted code through ${forbidden}`);
+    }
     for (const boundary of [
       "actions/download-artifact@",
       "head_sha=$GITHUB_SHA",
