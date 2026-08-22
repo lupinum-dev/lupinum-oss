@@ -53,7 +53,7 @@ const starterSmoke = parse(await text(".github/workflows/starter-smoke.yml"));
 const vercel = JSON.parse(await text("docs/vercel.json"));
 const expectedVercelIgnoreCommand = "node scripts/vercel-ignore.mjs";
 if (
-  vercel.git?.deploymentEnabled?.["*"] !== false
+  vercel.git?.deploymentEnabled?.["**"] !== false
   || vercel.git.deploymentEnabled.main !== true
   || Object.keys(vercel.git.deploymentEnabled).length !== 2
 ) {
