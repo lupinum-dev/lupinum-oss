@@ -6,7 +6,7 @@ const fleetFailures = validateFleet(fleet);
 if (fleetFailures.length) throw new Error(fleetFailures.join("\n"));
 
 const invalidFleetFailures = validateFleet({
-  version: 1,
+  version: 2,
   repositories: [fleet.repositories[0], fleet.repositories[0]],
 });
 if (!invalidFleetFailures.some((failure) => failure.startsWith("Duplicate repository:"))) {
