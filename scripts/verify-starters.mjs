@@ -120,7 +120,7 @@ for (const profile of profiles) {
     const vercelPreviewPath = new URL(".github/workflows/vercel-preview.yml", base).pathname;
     const { workflow: preview } = await readWorkflow(previewPath);
     const { source: publishSource, workflow: publish } = await readWorkflow(publishPath);
-    const vercelPreviewSource = await readFile(vercelPreviewPath, "utf8");
+    const { source: vercelPreviewSource, workflow: vercelPreview } = await readWorkflow(vercelPreviewPath);
     failures.push(...checkPreviewWorkflow(`${profile}/.github/workflows/package-preview.yml`, preview));
     failures.push(...checkPublishWorkflow(`${profile}/.github/workflows/publish.yml`, publish));
     for (const boundary of [
@@ -134,12 +134,28 @@ for (const profile of profiles) {
       "AbortSignal.timeout",
       "ignored-build-step",
       "reusedExistingPreview",
+      "sha=${encodeURIComponent(commitSha)}&state=READY",
+      "candidate.readyState === 'READY'",
+      "reportBestEffort",
     ]) {
       if (!vercelPreviewSource.includes(boundary)) failures.push(`${profile} Vercel preview workflow is missing ${boundary}`);
     }
-    const unsafePreviewStep = /actions\/checkout@|vercel build|vercel deploy|pnpm install|^\s*(?:-\s*)?run:/mu;
-    if (unsafePreviewStep.test(vercelPreviewSource)) failures.push(`${profile} Vercel preview workflow executes untrusted code`);
-    if (!unsafePreviewStep.test("      - run: pnpm test")) failures.push(`${profile} Vercel preview policy misses YAML list-item run steps`);
+    const approvedVercelPreviewAction = "actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd";
+    const vercelPreviewSteps = Object.values(vercelPreview.jobs ?? {}).flatMap((job) => job.steps ?? []);
+    if (
+      vercelPreviewSteps.length !== 1 ||
+      vercelPreviewSteps.some(
+        (step) =>
+          Object.hasOwn(step, "run") ||
+          !Object.hasOwn(step, "uses") ||
+          step.uses !== approvedVercelPreviewAction,
+      )
+    ) {
+      failures.push(`${profile} Vercel preview workflow must use only the approved pinned reporting action`);
+    }
+    if (/vercel build|vercel deploy|pnpm install/u.test(vercelPreviewSource)) {
+      failures.push(`${profile} Vercel preview workflow invokes local deployment commands`);
+    }
     for (const boundary of [
       "actions/download-artifact@",
       "head_sha=$GITHUB_SHA",
