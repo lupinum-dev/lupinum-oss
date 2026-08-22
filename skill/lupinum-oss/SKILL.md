@@ -23,6 +23,8 @@ Do not copy detailed handbook policy into generated explanations or this skill. 
 
 - **Create**: select and materialize a tested starter, customize it, verify it, configure permitted external settings, and open one launch issue for human gates.
 - **Audit**: inspect a repository and external settings, run objective checks, and report evidence. Do not mutate a review-only target.
+- **Fleet audit or rollout**: read the explicit library inventory, audit every
+  target before mutation, and apply shared policy through focused pull requests.
 - **Prepare a release or hotfix**: follow the repository's `MAINTAINING.md` and the current handbook procedure. Certify one immutable artifact and preserve protected publication boundaries.
 - **Diagnose**: gather the failed job, exact logs, repository state, external configuration, and registry state before proposing a fix.
 
@@ -65,6 +67,29 @@ A failed `gh auth status` in a restricted sandbox is not proof that GitHub authe
 4. Compare committed state with the relevant handbook checklists. Inspect live GitHub, npm, Vercel, Plausible, and production-site state when the user requests a complete operational audit and access is available.
 5. Classify each item as proven, failed, unverified, or human-only. Give the exact evidence and the smallest corrective action.
 6. Separate release blockers from cleanup. Do not equate many commits, deployments, or early patch versions with poor quality.
+
+## Audit or roll out the library fleet
+
+1. Read `fleet/libraries.json` from the current Lupinum OSS checkout. Do not add
+   repositories discovered by guessing, and never include customer applications.
+2. Run `pnpm fleet:audit`. Treat it as a GitHub read-only audit; inspect failures
+   before proposing mutations.
+3. For every mapped Vercel project, use the authenticated Vercel connection to
+   read the Git repository, Root Directory, source-files setting, production
+   branch, build machine selection, and on-demand concurrency. Do not introduce
+   a team-wide Vercel token into Lupinum OSS or CI for this audit.
+4. Report every control as proven, failed, unverified, or human-only. Secret
+   existence is provable; its value, team scope, and expiry are not proved by a
+   GitHub secret name.
+5. For a rollout, change the handbook and canonical asset first. Run
+   `pnpm shared:sync` and `pnpm verify`, then use the canary only when live
+   deployment behavior changed.
+6. Open one focused pull request per drifting repository. Preserve its local
+   build command, package layout, and Vercel ignore boundary. Read back external
+   settings after mutation and rerun the audit after merge.
+
+Do not silently rewrite the fleet, require `Vercel Preview`, enable automatic
+library branch previews, or apply library settings to customer applications.
 
 ## Prepare a release or hotfix
 
