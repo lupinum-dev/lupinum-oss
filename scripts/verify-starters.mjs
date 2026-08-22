@@ -47,7 +47,14 @@ for (const profile of profiles) {
   ];
   required.push(profile === "app" ? "vercel.json" : "docs/vercel.json");
   required.push(profile === "app" ? "scripts/vercel-ignore.mjs" : "docs/scripts/vercel-ignore.mjs");
-  if (profile !== "app") required.push(".github/workflows/package-preview.yml", ".github/workflows/publish.yml", "scripts/verify-packed-consumer.mjs");
+  if (profile !== "app") {
+    required.push(
+      ".github/workflows/package-preview.yml",
+      ".github/workflows/publish.yml",
+      ".github/workflows/vercel-preview.yml",
+      "scripts/verify-packed-consumer.mjs",
+    );
+  }
   const missingRequired = [];
   for (const path of required) {
     if (!(await exists(new URL(path, base)))) {
@@ -159,8 +166,18 @@ for (const profile of profiles) {
   const wrongVercelPath = profile === "app" ? "docs/vercel.json" : "vercel.json";
   if (await exists(new URL(wrongVercelPath, base))) failures.push(`${profile} keeps Vercel configuration outside its deployment root`);
   const vercel = JSON.parse(await readFile(new URL(vercelPath, base), "utf8"));
-  if (vercel.git?.deploymentEnabled !== true) {
-    failures.push(`${profile} must report a Vercel status for every pull-request commit`);
+  if (profile === "app" && vercel.git?.deploymentEnabled !== true) {
+    failures.push("app must report a Vercel status for every pull-request commit");
+  }
+  if (
+    profile !== "app"
+    && (
+      vercel.git?.deploymentEnabled?.["*"] !== false
+      || vercel.git.deploymentEnabled.main !== true
+      || Object.keys(vercel.git.deploymentEnabled).length !== 2
+    )
+  ) {
+    failures.push(`${profile} must deploy main automatically and require /vercel for previews`);
   }
   const expectedIgnoreCommand = "node scripts/vercel-ignore.mjs";
   if (vercel.ignoreCommand !== expectedIgnoreCommand) {
