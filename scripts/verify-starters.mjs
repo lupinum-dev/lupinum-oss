@@ -135,6 +135,7 @@ for (const profile of profiles) {
       "ignored-build-step",
       "reusedExistingPreview",
       "sha=${encodeURIComponent(commitSha)}&state=READY",
+      "candidate.readyState === 'READY'",
       "reportBestEffort",
     ]) {
       if (!vercelPreviewSource.includes(boundary)) failures.push(`${profile} Vercel preview workflow is missing ${boundary}`);
