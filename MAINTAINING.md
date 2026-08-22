@@ -13,6 +13,11 @@ The canonical on-demand Vercel workflow is
 review every generated copy, and run `pnpm verify`. Existing repositories apply
 the reviewed copy through normal pull requests.
 
+Run `pnpm fleet:audit` before and after a fleet rollout. It reads GitHub state
+without changing it. Complete the Vercel portion through the authenticated
+Lupinum OSS agent procedure; do not store a team-wide Vercel token in this
+repository or its CI.
+
 ## Dependency updates
 
 Prefer Renovate. Wait until a new external version is at least 24 hours old. Run `pnpm audit:all` and `pnpm verify` before merge.

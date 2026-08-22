@@ -19,6 +19,7 @@ pnpm docs:build
 pnpm audit:all
 pnpm release:verify
 pnpm shared:check
+pnpm fleet:check
 ```
 
 Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged release of this handbook repository.
@@ -32,6 +33,9 @@ Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged rele
 - Maintain the on-demand Vercel preview workflow once in
   `starters/_shared/vercel-preview.yml`. Run `pnpm shared:sync` after changes
   and commit the exact repository-owned copies.
+- Keep `fleet/libraries.json` limited to public libraries governed by this
+  standard. Do not add customer applications or duplicate repository-local
+  build configuration there.
 - Pin GitHub Actions to full commit SHAs.
 - Use `docs/` as the Vercel Root Directory. Keep `vercel.json` in `docs/` and
   enable source files outside the Root Directory because the site uses this
