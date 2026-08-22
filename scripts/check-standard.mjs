@@ -52,8 +52,12 @@ const packageJson = JSON.parse(await text("package.json"));
 const starterSmoke = parse(await text(".github/workflows/starter-smoke.yml"));
 const vercel = JSON.parse(await text("docs/vercel.json"));
 const expectedVercelIgnoreCommand = "node scripts/vercel-ignore.mjs";
-if (vercel.git?.deploymentEnabled !== true) {
-  failures.push("The handbook must report a Vercel status for every pull-request commit.");
+if (
+  vercel.git?.deploymentEnabled?.["*"] !== false
+  || vercel.git.deploymentEnabled.main !== true
+  || Object.keys(vercel.git.deploymentEnabled).length !== 2
+) {
+  failures.push("The handbook must deploy main automatically and require /vercel for pull-request previews.");
 }
 if (vercel.ignoreCommand !== expectedVercelIgnoreCommand) {
   failures.push("The handbook must skip deployments that cannot affect it.");

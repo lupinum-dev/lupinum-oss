@@ -47,7 +47,14 @@ for (const profile of profiles) {
   ];
   required.push(profile === "app" ? "vercel.json" : "docs/vercel.json");
   required.push(profile === "app" ? "scripts/vercel-ignore.mjs" : "docs/scripts/vercel-ignore.mjs");
-  if (profile !== "app") required.push(".github/workflows/package-preview.yml", ".github/workflows/publish.yml", "scripts/verify-packed-consumer.mjs");
+  if (profile !== "app") {
+    required.push(
+      ".github/workflows/package-preview.yml",
+      ".github/workflows/publish.yml",
+      ".github/workflows/vercel-preview.yml",
+      "scripts/verify-packed-consumer.mjs",
+    );
+  }
   const missingRequired = [];
   for (const path of required) {
     if (!(await exists(new URL(path, base)))) {
@@ -110,10 +117,25 @@ for (const profile of profiles) {
   } else {
     const previewPath = new URL(".github/workflows/package-preview.yml", base).pathname;
     const publishPath = new URL(".github/workflows/publish.yml", base).pathname;
+    const vercelPreviewPath = new URL(".github/workflows/vercel-preview.yml", base).pathname;
     const { workflow: preview } = await readWorkflow(previewPath);
     const { source: publishSource, workflow: publish } = await readWorkflow(publishPath);
+    const vercelPreviewSource = await readFile(vercelPreviewPath, "utf8");
     failures.push(...checkPreviewWorkflow(`${profile}/.github/workflows/package-preview.yml`, preview));
     failures.push(...checkPublishWorkflow(`${profile}/.github/workflows/publish.yml`, publish));
+    for (const boundary of [
+      "checks: write",
+      "cancel-in-progress: false",
+      "github.event.comment.body == '/vercel'",
+      "'/v13/deployments'",
+      "gitSource:",
+      "name: 'Vercel Preview'",
+    ]) {
+      if (!vercelPreviewSource.includes(boundary)) failures.push(`${profile} Vercel preview workflow is missing ${boundary}`);
+    }
+    for (const forbidden of ["actions/checkout@", "vercel build", "vercel deploy", "pnpm install"]) {
+      if (vercelPreviewSource.includes(forbidden)) failures.push(`${profile} Vercel preview workflow executes untrusted code through ${forbidden}`);
+    }
     for (const boundary of [
       "actions/download-artifact@",
       "head_sha=$GITHUB_SHA",
@@ -159,8 +181,18 @@ for (const profile of profiles) {
   const wrongVercelPath = profile === "app" ? "docs/vercel.json" : "vercel.json";
   if (await exists(new URL(wrongVercelPath, base))) failures.push(`${profile} keeps Vercel configuration outside its deployment root`);
   const vercel = JSON.parse(await readFile(new URL(vercelPath, base), "utf8"));
-  if (vercel.git?.deploymentEnabled !== true) {
-    failures.push(`${profile} must report a Vercel status for every pull-request commit`);
+  if (profile === "app" && vercel.git?.deploymentEnabled !== true) {
+    failures.push("app must report a Vercel status for every pull-request commit");
+  }
+  if (
+    profile !== "app"
+    && (
+      vercel.git?.deploymentEnabled?.["*"] !== false
+      || vercel.git.deploymentEnabled.main !== true
+      || Object.keys(vercel.git.deploymentEnabled).length !== 2
+    )
+  ) {
+    failures.push(`${profile} must deploy main automatically and require /vercel for previews`);
   }
   const expectedIgnoreCommand = "node scripts/vercel-ignore.mjs";
   if (vercel.ignoreCommand !== expectedIgnoreCommand) {
