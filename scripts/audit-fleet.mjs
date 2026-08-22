@@ -7,10 +7,11 @@ const root = new URL("../", import.meta.url);
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const vercelProjectPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const policy = "library-docs-on-demand";
+const releaseProfiles = new Set(["none", "single-package", "fixed-package-set", "independent-family"]);
 
 export function validateFleet(fleet) {
   const failures = [];
-  if (fleet.version !== 1) failures.push("Fleet version must be 1.");
+  if (fleet.version !== 2) failures.push("Fleet version must be 2.");
   if (!Array.isArray(fleet.repositories) || fleet.repositories.length === 0) {
     failures.push("Fleet must contain at least one repository.");
     return failures;
@@ -27,6 +28,7 @@ export function validateFleet(fleet) {
       failures.push(`Invalid Vercel project for ${entry.repository ?? "unknown"}.`);
     }
     if (entry.policy !== policy) failures.push(`${entry.repository ?? "Unknown repository"} uses an unsupported policy.`);
+    if (!releaseProfiles.has(entry.releaseProfile)) failures.push(`${entry.repository ?? "Unknown repository"} has an unsupported release profile.`);
     if (repositories.has(entry.repository)) failures.push(`Duplicate repository: ${entry.repository}`);
     if (projects.has(entry.vercelProject)) failures.push(`Duplicate Vercel project: ${entry.vercelProject}`);
     repositories.add(entry.repository);

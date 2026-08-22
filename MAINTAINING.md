@@ -18,6 +18,10 @@ without changing it. Complete the Vercel portion through the authenticated
 Lupinum OSS agent procedure; do not store a team-wide Vercel token in this
 repository or its CI.
 
+Run `pnpm fleet:release-audit` for release conformance. It derives package and
+workflow inventories from each repository, reads GitHub and npm without
+mutation, and separates failed, unverified, and human-only evidence.
+
 ## Dependency updates
 
 Prefer Renovate. Wait until a new external version is at least 24 hours old. Run `pnpm audit:all` and `pnpm verify` before merge.

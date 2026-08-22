@@ -10,6 +10,8 @@
     "docs:dev": "pnpm --dir docs dev",
     "fleet:audit": "node scripts/audit-fleet.mjs",
     "fleet:check": "node scripts/test-fleet-audit.mjs",
+    "fleet:release-audit": "node scripts/audit-fleet-release.mjs",
+    "fleet:release-check": "node scripts/test-fleet-release-audit.mjs",
     "release:verify": "pnpm verify",
     "shared:check": "node scripts/shared-assets.mjs",
     "shared:sync": "node scripts/shared-assets.mjs --write",
@@ -18,7 +20,7 @@
     "starters:verify": "node scripts/verify-starters.mjs",
     "test:docs-output": "node scripts/test-docs-output.mjs",
     "test:url-contract": "node scripts/test-url-contract.mjs",
-    "verify": "pnpm audit:all && pnpm test:url-contract && pnpm test:docs-output && pnpm shared:check && pnpm fleet:check && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build"
+    "verify": "pnpm audit:all && pnpm test:url-contract && pnpm test:docs-output && pnpm shared:check && pnpm fleet:check && pnpm fleet:release-check && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build"
   },
   "devDependencies": {
     "changelogen": "0.6.2",
