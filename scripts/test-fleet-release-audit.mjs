@@ -61,6 +61,11 @@ const injectedVerification = await verifyProvenanceDocument(
 assert.equal(injectedVerification.verified, true);
 assert.equal(observedSigstoreOptions.certificateIssuer, "https://token.actions.githubusercontent.com");
 assert.match("https://github.com/lupinum-dev/one/.github/workflows/publish.yml@refs/heads/main", new RegExp(observedSigstoreOptions.certificateIdentityURI));
+assert.deepEqual(observedSigstoreOptions.certificateOIDs, {
+  "1.3.6.1.4.1.57264.1.3": provenanceSha,
+  "1.3.6.1.4.1.57264.1.5": "lupinum-dev/one",
+  "1.3.6.1.4.1.57264.1.6": "refs/heads/main",
+});
 const validWorkflow = `
 name: Publish
 on:

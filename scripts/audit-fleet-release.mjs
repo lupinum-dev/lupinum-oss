@@ -150,7 +150,7 @@ export function evaluateVerifiedProvenanceStatement(statement, pkg, version, int
     && workflow?.repository === `https://github.com/${pkg.repository}`
     && workflow?.ref === "refs/heads/main"
     && workflow?.path === expectedWorkflow
-    && typeof sourceCommit === "string";
+    && /^[0-9a-f]{40}$/u.test(sourceCommit ?? "");
   return {
     present: true,
     verified,
@@ -165,17 +165,24 @@ export async function verifyProvenanceDocument(document, pkg, version, integrity
   if (!attestation?.bundle?.dsseEnvelope?.payload) {
     return { present: true, verified: false, evidence: "SLSA statement is incomplete" };
   }
+  const statement = JSON.parse(Buffer.from(attestation.bundle.dsseEnvelope.payload, "base64").toString("utf8"));
+  const evaluated = evaluateVerifiedProvenanceStatement(statement, pkg, version, integrity, expectedWorkflow);
+  if (!evaluated.verified) return evaluated;
   const identity = `https://github.com/${pkg.repository}/${expectedWorkflow}@refs/heads/main`;
   try {
     await verifyBundle(attestation.bundle, {
       certificateIssuer: "https://token.actions.githubusercontent.com",
       certificateIdentityURI: `^${identity.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`,
+      certificateOIDs: {
+        "1.3.6.1.4.1.57264.1.3": evaluated.sourceCommit,
+        "1.3.6.1.4.1.57264.1.5": pkg.repository,
+        "1.3.6.1.4.1.57264.1.6": "refs/heads/main",
+      },
     });
   } catch {
     return { present: true, verified: false, evidence: "Sigstore signature, certificate identity, or transparency-log proof is invalid" };
   }
-  const statement = JSON.parse(Buffer.from(attestation.bundle.dsseEnvelope.payload, "base64").toString("utf8"));
-  return evaluateVerifiedProvenanceStatement(statement, pkg, version, integrity, expectedWorkflow);
+  return evaluated;
 }
 
 async function provenanceState(pkg, version, integrity, expectedWorkflow) {
