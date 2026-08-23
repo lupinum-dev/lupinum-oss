@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "changelogen": "0.6.2",
+    "sigstore": "5.0.0",
     "yaml": "2.9.0"
   },
   "packageManager": "pnpm@11.21.0"

@@ -9,9 +9,55 @@ const vercelProjectPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const policy = "library-docs-on-demand";
 const releaseProfiles = new Set(["none", "single-package", "fixed-package-set", "independent-family"]);
 
+function globPattern(pattern) {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/gu, "\\$&")
+    .replace(/\*\*/gu, "\u0000")
+    .replace(/\*/gu, "[^/]*")
+    .replace(/\?/gu, "[^/]")
+    .replace(/\u0000/gu, ".*");
+  return new RegExp(`^${escaped}$`, "u");
+}
+
+function patternMatchesRef(pattern, ref, defaultBranch) {
+  if (pattern === "~ALL") return true;
+  if (pattern === "~DEFAULT_BRANCH") return ref === `refs/heads/${defaultBranch}`;
+  const candidate = pattern.startsWith("refs/") ? ref : ref.replace(/^refs\/(?:heads|tags)\//u, "");
+  return globPattern(pattern).test(candidate);
+}
+
+export function rulesetTargetsRef(ruleset, ref, defaultBranch) {
+  if (ruleset.enforcement !== "active") return false;
+  const condition = ruleset.conditions?.ref_name;
+  const include = condition?.include ?? [];
+  const exclude = condition?.exclude ?? [];
+  return include.some((pattern) => patternMatchesRef(pattern, ref, defaultBranch))
+    && !exclude.some((pattern) => patternMatchesRef(pattern, ref, defaultBranch));
+}
+
+export function rulesetsForRef(rulesets, ref, defaultBranch) {
+  return rulesets.filter((ruleset) => rulesetTargetsRef(ruleset, ref, defaultBranch));
+}
+
+export function requiredContextsFromRulesets(rulesets, defaultBranch) {
+  const contexts = [];
+  for (const ruleset of rulesetsForRef(rulesets, `refs/heads/${defaultBranch}`, defaultBranch)) {
+    for (const rule of ruleset.rules ?? []) {
+      if (rule.type !== "required_status_checks") continue;
+      for (const required of rule.parameters?.required_status_checks ?? []) {
+        if (required.context) contexts.push(required.context);
+      }
+    }
+  }
+  return [...new Set(contexts)].sort();
+}
+
 export function validateFleet(fleet) {
   const failures = [];
   if (fleet.version !== 2) failures.push("Fleet version must be 2.");
+  if (typeof fleet.releaseHistoryCutoff !== "string" || !Number.isFinite(Date.parse(fleet.releaseHistoryCutoff))) {
+    failures.push("Fleet release history cutoff must be an ISO date-time.");
+  }
   if (!Array.isArray(fleet.repositories) || fleet.repositories.length === 0) {
     failures.push("Fleet must contain at least one repository.");
     return failures;
@@ -92,19 +138,9 @@ function ghRaw(path) {
   return ghApi(["-H", "Accept: application/vnd.github.raw+json", path]);
 }
 
-function requiredContexts(repository) {
+function repositoryRulesets(repository) {
   const summaries = ghJson(`repos/${repository}/rulesets?per_page=100`);
-  const contexts = [];
-  for (const summary of summaries) {
-    const ruleset = ghJson(`repos/${repository}/rulesets/${summary.id}`);
-    for (const rule of ruleset.rules ?? []) {
-      if (rule.type !== "required_status_checks") continue;
-      for (const required of rule.parameters?.required_status_checks ?? []) {
-        if (required.context) contexts.push(required.context);
-      }
-    }
-  }
-  return contexts;
+  return summaries.map((summary) => ghJson(`repos/${repository}/rulesets/${summary.id}`));
 }
 
 function readRemoteState(repository) {
@@ -114,13 +150,14 @@ function readRemoteState(repository) {
   const vercel = JSON.parse(ghRaw(`repos/${repository}/contents/docs/vercel.json?ref=${ref}`));
   const secrets = ghJson(`repos/${repository}/actions/secrets?per_page=100`);
   const variables = ghJson(`repos/${repository}/actions/variables?per_page=100`);
+  const rulesets = repositoryRulesets(repository);
   return {
     defaultBranch: metadata.default_branch,
     workflow,
     vercel,
     secretNames: (secrets.secrets ?? []).map((secret) => secret.name),
     variableNames: (variables.variables ?? []).map((variable) => variable.name),
-    requiredContexts: requiredContexts(repository),
+    requiredContexts: requiredContextsFromRulesets(rulesets, metadata.default_branch),
   };
 }
 

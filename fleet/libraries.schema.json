@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "repositories"],
+  "required": ["version", "releaseHistoryCutoff", "repositories"],
   "properties": {
     "$schema": { "type": "string" },
     "version": { "const": 2 },
+    "releaseHistoryCutoff": { "type": "string", "format": "date-time" },
     "repositories": {
       "type": "array",
       "minItems": 1,
