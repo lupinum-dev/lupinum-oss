@@ -136,7 +136,7 @@ function repositoryState(entry) {
 export function evaluateVerifiedProvenanceStatement(statement, pkg, version, integrity, expectedWorkflow) {
   const workflow = statement.predicate?.buildDefinition?.externalParameters?.workflow;
   const dependencies = statement.predicate?.buildDefinition?.resolvedDependencies ?? [];
-  const expectedSubject = `pkg:npm/${pkg.name.replace("@", "%40")}@${version}`;
+  const expectedSubject = `pkg:npm/${pkg.name.replaceAll("@", "%40")}@${version}`;
   const expectedSha512 = integrity?.startsWith("sha512-")
     ? Buffer.from(integrity.slice("sha512-".length), "base64").toString("hex")
     : undefined;
