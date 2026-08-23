@@ -4,9 +4,9 @@ import { checkWorkflow, containsNpmCredential } from "./workflow-policy.mjs";
 const statuses = new Set(["PROVEN", "FAILED", "UNVERIFIED", "HUMAN-ONLY"]);
 const releaseStates = new Set(["NO RELEASE", "VERSION REVIEW", "CERTIFYING", "AWAITING APPROVAL", "PUBLISHING", "PARTIAL FAILURE", "BLOCKED", "COMPLETE"]);
 
-const result = (status, id, evidence) => {
+const result = (status, id, evidence, details = {}) => {
   if (!statuses.has(status)) throw new Error(`Unknown audit status: ${status}`);
-  return { status, id, evidence };
+  return { status, id, evidence, ...details };
 };
 
 const needs = (job) => Array.isArray(job?.needs) ? job.needs : [job?.needs].filter(Boolean);
@@ -179,6 +179,15 @@ function checkReleaseReconciliation(path, workflow, protectedName) {
   }
   if (!/gh\s+release\s+create\b/u.test(commands)) failures.push(`${path} job ${releaseName} cannot create a missing GitHub Release.`);
   if (!/gh\s+release\s+(?:view|edit)\b/u.test(commands)) failures.push(`${path} job ${releaseName} cannot reconcile an existing GitHub Release.`);
+  if (!/gh\s+api[\s\S]*--method\s+POST[\s\S]*git\/refs/u.test(commands)) {
+    failures.push(`${path} job ${releaseName} cannot create an exact-source lightweight tag before the GitHub Release.`);
+  }
+  if (!/git\/ref\/tags/u.test(commands) || !/SOURCE_SHA/u.test(commands)) {
+    failures.push(`${path} job ${releaseName} does not read the release tag back and bind it to the certified source SHA.`);
+  }
+  if (!/HUMAN-ONLY/u.test(commands) || !/(?:HTTP\s+403|Resource not accessible by integration)/u.test(commands)) {
+    failures.push(`${path} job ${releaseName} does not turn a historical-tag permission failure into one explicit human gate.`);
+  }
   return failures;
 }
 
@@ -399,26 +408,94 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
     ));
 
     const expected = expectedTags(profile, pkg, version);
+    const expectedTag = expected[0];
+    const retained = release?.retainedCandidate;
+    const recoveryEvidenceProven = bytesSourceProven
+      && retained?.present === true
+      && Boolean(release?.changelog)
+      && typeof release?.repository === "string";
+    const historicalSource = typeof release?.sourceCommit === "string"
+      && typeof release?.currentMainSha === "string"
+      && release.sourceCommit !== release.currentMainSha;
+    const historyIncomplete = !release?.tag || !release?.release || !release?.assetName;
+    if (historyIncomplete) {
+      checks.push(result(
+        retained?.present === true ? "PROVEN" : "UNVERIFIED",
+        `npm:${pkg.name}@${version}:retained-candidate`,
+        retained?.evidence ?? "the expected certified source CI artifact is unavailable",
+      ));
+    }
     const tagAligned = release?.tag && typeof release.sourceCommit === "string" && release.tagTarget === release.sourceCommit;
-    const tagStatus = tagAligned ? provenance?.verified === true ? "PROVEN" : "UNVERIFIED" : provenance == null ? "UNVERIFIED" : "FAILED";
-    const tagEvidence = tagAligned
-      ? `${release.tag} -> ${release.tagTarget}; provenance source ${release.sourceCommit}`
-      : release?.tag ? `${release.tag} targets ${release.tagTarget ?? "unknown"}; provenance source ${release.sourceCommit ?? "unknown"}` : `missing; expected ${expected.join(" or ")}`;
-    checks.push(result(tagStatus, `npm:${pkg.name}@${version}:tag`, tagEvidence));
+    if (tagAligned) {
+      checks.push(result(
+        provenance?.verified === true ? "PROVEN" : "UNVERIFIED",
+        `npm:${pkg.name}@${version}:tag`,
+        `${release.tag} -> ${release.tagTarget}; provenance source ${release.sourceCommit}`,
+      ));
+    } else if (release?.tag) {
+      checks.push(result(
+        "FAILED",
+        `npm:${pkg.name}@${version}:tag`,
+        `${release.tag} targets ${release.tagTarget ?? "unknown"}; provenance source ${release.sourceCommit ?? "unknown"}`,
+      ));
+    } else if (recoveryEvidenceProven && historicalSource) {
+      const command = `gh api --method POST repos/${release.repository}/git/refs -f ref=refs/tags/${expectedTag} -f sha=${release.sourceCommit}`;
+      checks.push(result(
+        "HUMAN-ONLY",
+        `npm:${pkg.name}@${version}:tag`,
+        `historical certified source ${release.sourceCommit}; expected ${expectedTag}; run: ${command}`,
+        { classification: "historical-tag", nextAction: command },
+      ));
+    } else if (recoveryEvidenceProven) {
+      checks.push(result(
+        "FAILED",
+        `npm:${pkg.name}@${version}:tag`,
+        `missing ${expectedTag} for current certified source ${release.sourceCommit}`,
+        { classification: "reconcile" },
+      ));
+    } else {
+      checks.push(result(
+        provenance == null || retained?.present !== true ? "UNVERIFIED" : "FAILED",
+        `npm:${pkg.name}@${version}:tag`,
+        `missing ${expectedTag}; source, retained candidate, or changelog evidence is incomplete`,
+      ));
+    }
 
     const expectedTarball = `${pkg.name.replace(/^@/u, "").replace("/", "-")}-${version}.tgz`;
     const expectedIntegrity = registry.integrity[version];
     const releaseHasAsset = release?.assetName === expectedTarball;
     const releaseBytesMatch = releaseHasAsset && typeof release.assetIntegrity === "string" && release.assetIntegrity === expectedIntegrity;
-    const releaseStatus = releaseBytesMatch ? provenance?.verified === true ? "PROVEN" : "UNVERIFIED"
-      : releaseHasAsset && release.assetIntegrity == null ? "UNVERIFIED"
-        : "FAILED";
-    const releaseEvidence = releaseBytesMatch
-      ? `${release.release} contains ${expectedTarball} with registry integrity ${expectedIntegrity}`
-      : releaseHasAsset && release.assetIntegrity == null ? `${release.release} contains ${expectedTarball}, but its bytes could not be read`
-        : releaseHasAsset ? `${release.release} contains ${expectedTarball}, but its bytes differ from npm`
-          : release?.release ? `${release.release} is missing ${expectedTarball}` : `missing; expected ${expected.join(" or ")}`;
-    checks.push(result(releaseStatus, `npm:${pkg.name}@${version}:github-release`, releaseEvidence));
+    if (releaseBytesMatch) {
+      checks.push(result(
+        provenance?.verified === true ? "PROVEN" : "UNVERIFIED",
+        `npm:${pkg.name}@${version}:github-release`,
+        `${release.release} contains ${expectedTarball} with registry integrity ${expectedIntegrity}`,
+      ));
+    } else if (releaseHasAsset && release.assetIntegrity == null) {
+      checks.push(result("UNVERIFIED", `npm:${pkg.name}@${version}:github-release`, `${release.release} contains ${expectedTarball}, but its bytes could not be read`));
+    } else if (releaseHasAsset) {
+      checks.push(result("FAILED", `npm:${pkg.name}@${version}:github-release`, `${release.release} contains ${expectedTarball}, but its bytes differ from npm`));
+    } else if (recoveryEvidenceProven && historicalSource && !release?.tag && !release?.release) {
+      checks.push(result(
+        "HUMAN-ONLY",
+        `npm:${pkg.name}@${version}:github-release`,
+        `wait for verified ${expectedTag}, then rerun only the GitHub Release repair job`,
+        { classification: "historical-release" },
+      ));
+    } else if (recoveryEvidenceProven && (tagAligned || !historicalSource)) {
+      checks.push(result(
+        "FAILED",
+        `npm:${pkg.name}@${version}:github-release`,
+        release?.release ? `${release.release} is missing ${expectedTarball}` : `missing; expected ${expected.join(" or ")}`,
+        { classification: "reconcile" },
+      ));
+    } else {
+      checks.push(result(
+        provenance == null || retained?.present !== true ? "UNVERIFIED" : "FAILED",
+        `npm:${pkg.name}@${version}:github-release`,
+        release?.release ? `${release.release} is missing ${expectedTarball}` : `missing; source, retained candidate, tag, or changelog evidence is incomplete`,
+      ));
+    }
 
     checks.push(result(release?.changelog ? "PROVEN" : "FAILED", `npm:${pkg.name}@${version}:changelog`, release?.changelog ?? `missing exact ${version} heading`));
     if (release?.release && typeof release.prerelease === "boolean") {
@@ -444,17 +521,23 @@ function firstActionable(checks) {
 export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packages, registries = {}, checks }) {
   const failed = checks.filter((check) => check.status === "FAILED");
   const unverified = checks.filter((check) => check.status === "UNVERIFIED");
+  const historicalTag = checks.find((check) => check.classification === "historical-tag");
+  const reconcile = checks.filter((check) => check.classification === "reconcile");
+  const blockingFailed = failed.filter((check) => check.classification !== "reconcile");
   const currentPublished = packages.map((pkg) => registries[pkg.name]?.versions?.includes(pkg.version) === true);
   let state;
   if (unverified.length) state = "BLOCKED";
-  else if (failed.length) state = "BLOCKED";
+  else if (blockingFailed.length) state = "BLOCKED";
+  else if (historicalTag || reconcile.length) state = "PARTIAL FAILURE";
   else if (profile === "none") state = "NO RELEASE";
   else if (currentPublished.some((published) => !published)) state = "BLOCKED";
   else state = "COMPLETE";
   if (!releaseStates.has(state)) throw new Error(`Unknown release state: ${state}`);
 
   const actionable = firstActionable(checks);
-  const nextAction = state === "BLOCKED"
+  const nextAction = state === "PARTIAL FAILURE"
+    ? historicalTag?.nextAction ?? "Run the repository's input-free reconcile workflow."
+    : state === "BLOCKED"
       ? actionable?.status === "UNVERIFIED"
         ? `Restore evidence for ${actionable.id} and rerun the fleet release audit.`
         : actionable
@@ -479,7 +562,9 @@ export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packa
     channel: channels.size === 0 ? "none" : channels.size === 1 ? [...channels][0] : "per-package",
     packages: packageLines,
     confirmed: [`${checks.filter((check) => check.status === "PROVEN").length} objective controls proven`],
-    blocked: [...failed, ...unverified].map((check) => `${check.id}: ${check.evidence}`),
+    blocked: checks.filter((check) => check.status !== "PROVEN" && check.status !== "HUMAN-ONLY")
+      .concat(checks.filter((check) => check.classification === "historical-tag" || check.classification === "historical-release"))
+      .map((check) => `${check.id}: ${check.evidence}`),
     nextAction,
   };
 }
