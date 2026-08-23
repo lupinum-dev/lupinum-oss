@@ -224,8 +224,10 @@ async function registryState(pkg, repository, expectedWorkflow, historyCutoff) {
 export function headingContainsVersion(source, pkg, version, profile) {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const packageName = pkg.name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const prefix = profile === "independent-family" && /(?:^|-)mcp$/iu.test(pkg.name) ? "mcp-v" : "v";
-  return new RegExp(`^#{1,3}\\s+(?:${packageName}@)?${prefix}${escaped}(?:\\s|$)`, "imu").test(source);
+  const labels = profile === "independent-family"
+    ? [/(?:^|-)mcp$/iu.test(pkg.name) ? `mcp-v${escaped}` : `v${escaped}`]
+    : [`v?${escaped}`, `${packageName}@v?${escaped}`];
+  return new RegExp(`^#{1,3}\\s+(?:${labels.join("|")})(?:\\s|$)`, "imu").test(source);
 }
 
 async function assetIntegrity(asset) {
