@@ -101,6 +101,12 @@ library branch previews, or apply library settings to customer applications.
 6. Verify registry versions, dist-tags, integrity, provenance when applicable, Git tags, and GitHub releases.
 7. Follow the handbook's explicit first-package bootstrap ceremony only when the package does not yet exist and the user authorizes that irreversible publication.
 
+For a normal or recovery release, derive the state from current evidence and
+report the handbook's Lazy Maintainer release card. Give exactly one safe next
+action. Do not ask the maintainer to provide a version, package list, tag,
+dist-tag, or artifact run ID when the retained manifest and trusted CI event can
+provide it.
+
 Use `next` for prereleases and `latest` for stable releases unless the repository's current written policy deliberately says otherwise. A hotfix to Lupinum-owned code does not require waiting 24 hours unless it introduces a fresh external dependency.
 
 Never add `NPM_TOKEN`, publish an uncertified local rebuild, silently bypass dependency quarantine, invent a manual tag path, or weaken required checks to make a release pass.
@@ -127,5 +133,8 @@ Report:
 - current commit, PR, deployment, artifact, or registry evidence where relevant;
 - remaining human gates with exact navigation or commands;
 - known limitations and rollback path.
+
+For a package release, use the handbook's Lazy Maintainer state names and
+release-card fields. Do not replace missing evidence with a green summary.
 
 Do not claim the repository is standard, secure, deployed, or released when evidence is missing. Leave generated repositories understandable through their own `AGENTS.md` and `MAINTAINING.md` even if this skill and the handbook checkout are unavailable.
