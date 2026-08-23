@@ -6,6 +6,9 @@ All notable changes to the Lupinum OSS handbook, starters, and skill are recorde
 
 ### Added
 
+- Lazy Maintainer release states, release-card evidence, automatic exact-CI
+  preflight, protected approval, and input-free reconciliation.
+
 - Three release profiles for single packages, fixed-version package sets, and
   independent package families.
 - Read-only fleet release auditing for GitHub, package, workflow, npm,
