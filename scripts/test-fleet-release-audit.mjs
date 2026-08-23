@@ -10,7 +10,7 @@ import {
   expectedTags,
   formatReleaseCard,
 } from "./fleet-release-policy.mjs";
-import { evaluateVerifiedProvenanceStatement, headingContainsVersion, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
+import { changelogForPackage, evaluateVerifiedProvenanceStatement, headingContainsVersion, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
 
 const action = "0123456789abcdef0123456789abcdef01234567";
 const packages = [{ name: "@lupinum/one", version: "1.0.0" }, { name: "@lupinum/two", version: "1.0.0" }];
@@ -443,6 +443,12 @@ assert.equal(headingContainsVersion("## 0.4.0-beta.1 - 2026-08-22", { name: "@lu
 assert.equal(headingContainsVersion("## 1.0.0-beta.3", { name: "@lupinum/nuxt-photo" }, "1.0.0-beta.3", "fixed-version-set"), true, "A Changesets package changelog uses a bare version heading.");
 assert.equal(headingContainsVersion("## @lupinum/nuxt-photo@1.0.0-beta.3", { name: "@lupinum/nuxt-photo" }, "1.0.0-beta.3", "fixed-version-set"), true, "A package-qualified version heading must align with that package.");
 assert.equal(headingContainsVersion("## 1.0.0-beta.30", { name: "@lupinum/nuxt-photo" }, "1.0.0-beta.3", "fixed-version-set"), false, "A longer version must not satisfy the exact heading contract.");
+const fixedChangelogs = [
+  { path: "packages/nuxt/CHANGELOG.md", source: "## 1.0.0-beta.3" },
+  { path: "packages/vue/CHANGELOG.md", source: "## 1.0.0-beta.2" },
+];
+assert.equal(changelogForPackage(fixedChangelogs, { name: "@lupinum/vue-photo", manifestPath: "packages/vue/package.json" }, "1.0.0-beta.3", "fixed-version-set"), undefined, "A sibling package changelog must not authorize a missing colocated entry.");
+assert.equal(changelogForPackage([{ path: "CHANGELOG.md", source: "## v1.0.0-beta.3" }], { name: "@lupinum/vue-board", manifestPath: "packages/vue/package.json" }, "1.0.0-beta.3", "fixed-version-set")?.path, "CHANGELOG.md", "A repository-owned shared changelog remains valid when no colocated changelog exists.");
 const mcpRegistry = { tags: { latest: mcp.version, next: mcp.version }, versions: [mcp.version], provenance: {}, integrity: {}, relevantVersions: [], historyCutoff: "2026-08-20T00:00:00.000Z", historicalExceptions: [{ version: mcp.version, publishedAt: "2026-08-19T00:00:00.000Z" }] };
 const historicalChecks = evaluateRegistryPackage(mcp, mcpRegistry, {}, "independent-family");
 assert.ok(historicalChecks.every((item) => item.status !== "FAILED"), "Explicit pre-contract history was falsely rejected.");

@@ -47,8 +47,11 @@ function repositoryState(entry) {
   const tree = ghJson(`repos/${entry.repository}/git/trees/${sha}?recursive=1`).tree ?? [];
   const paths = tree.filter((item) => item.type === "blob").map((item) => item.path);
   const manifests = paths.filter((path) => /(?:^|\/)package\.json$/u.test(path) && !/^(?:apps|demo|docs|examples|fixtures|playground|starters|test|tests)\//u.test(path));
-  const packageManifests = manifests.map((path) => JSON.parse(ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`)));
-  const packages = packageManifests.filter((pkg) => pkg.private !== true && pkg.name && pkg.version);
+  const manifestEntries = manifests.map((path) => ({ path, manifest: JSON.parse(ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`)) }));
+  const packageManifests = manifestEntries.map((entry) => entry.manifest);
+  const packages = manifestEntries
+    .filter((entry) => entry.manifest.private !== true && entry.manifest.name && entry.manifest.version)
+    .map((entry) => ({ ...entry.manifest, manifestPath: entry.path }));
   const workflowFiles = paths.filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(path));
   const workflows = workflowFiles.map((path) => ({ path, source: ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`) }));
   const actions = ghJson(`repos/${entry.repository}/actions/permissions/workflow`);
@@ -230,6 +233,15 @@ export function headingContainsVersion(source, pkg, version, profile) {
   return new RegExp(`^#{1,3}\\s+(?:${labels.join("|")})(?:\\s|$)`, "imu").test(source);
 }
 
+export function changelogForPackage(changelogs, pkg, version, profile) {
+  const colocatedPath = pkg.manifestPath === "package.json"
+    ? "CHANGELOG.md"
+    : pkg.manifestPath?.replace(/package\.json$/u, "CHANGELOG.md");
+  const colocated = changelogs.find((entry) => entry.path === colocatedPath);
+  if (colocated) return headingContainsVersion(colocated.source, pkg, version, profile) ? colocated : undefined;
+  return changelogs.find((entry) => headingContainsVersion(entry.source, pkg, version, profile));
+}
+
 async function assetIntegrity(asset) {
   if (!asset?.url) return undefined;
   const response = await fetch(asset.url, { redirect: "follow" });
@@ -242,7 +254,7 @@ async function releaseState(state, pkg, versions, profile, registry) {
     const candidates = expectedTags(profile, pkg, version);
     const tag = state.tags.find((entry) => candidates.includes(entry.name));
     const release = state.releases.find((entry) => candidates.includes(entry.tag));
-    const changelog = state.changelogs.find((entry) => headingContainsVersion(entry.source, pkg, version, profile));
+    const changelog = changelogForPackage(state.changelogs, pkg, version, profile);
     const expectedTarball = `${pkg.name.replace(/^@/u, "").replace("/", "-")}-${version}.tgz`;
     const asset = release?.assets.find((entry) => entry.name === expectedTarball);
     return [version, {
