@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { evaluateRepositoryState, validateFleet } from "./audit-fleet.mjs";
+import assert from "node:assert/strict";
+import { evaluateRepositoryState, requiredContextsFromRulesets, rulesetTargetsRef, validateFleet } from "./audit-fleet.mjs";
 
 const fleet = JSON.parse(await readFile(new URL("../fleet/libraries.json", import.meta.url), "utf8"));
 const fleetFailures = validateFleet(fleet);
@@ -15,6 +16,26 @@ if (!invalidFleetFailures.some((failure) => failure.startsWith("Duplicate reposi
 if (!invalidFleetFailures.includes("The library deployment policy must have exactly one canary.")) {
   throw new Error("Multiple fleet canaries were not rejected.");
 }
+
+const activeMain = {
+  enforcement: "active",
+  conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
+  rules: [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "CI gate" }] } }],
+};
+const activeTags = {
+  enforcement: "active",
+  conditions: { ref_name: { include: ["refs/tags/*"], exclude: [] } },
+  rules: [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "Tag check" }] } }],
+};
+const inactiveMain = {
+  ...activeMain,
+  enforcement: "disabled",
+  rules: [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "Disabled check" }] } }],
+};
+assert.equal(rulesetTargetsRef(activeMain, "refs/heads/main", "main"), true);
+assert.equal(rulesetTargetsRef(activeMain, "refs/heads/feature", "main"), false);
+assert.equal(rulesetTargetsRef(activeTags, "refs/tags/v1.0.0", "main"), true);
+assert.deepEqual(requiredContextsFromRulesets([activeMain, activeTags, inactiveMain], "main"), ["CI gate"]);
 
 const canonicalWorkflow = "canonical workflow\n";
 const validState = {
