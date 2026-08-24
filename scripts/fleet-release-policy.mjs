@@ -16,6 +16,11 @@ const commandsFor = (job) => (job.steps ?? []).map((step) => step.run ?? "").joi
 const actionSteps = (job, action) => (job.steps ?? []).filter((step) => String(step.uses ?? "").startsWith(`${action}@`));
 const artifactName = (step) => typeof step.with?.name === "string" && step.with.name.trim() ? step.with.name.trim() : undefined;
 const isExpression = (value) => typeof value === "string" && value.includes("${{");
+const betterConvexPackages = {
+  mcp: "@lupinum/better-convex-mcp",
+  nuxt: "@lupinum/better-convex-nuxt",
+  vue: "@lupinum/better-convex-vue",
+};
 
 function ancestors(jobs, name, found = new Set()) {
   for (const parent of needs(jobs[name])) {
@@ -208,6 +213,59 @@ function expectedTags(profile, pkg, version) {
   return [`v${version}`];
 }
 
+export function deriveReleaseUnits(profile, packages) {
+  if (profile !== "independent-family") return [];
+  const byName = new Map(packages.map((pkg) => [pkg.name, pkg]));
+  const coupledPackages = [betterConvexPackages.vue, betterConvexPackages.nuxt]
+    .map((name) => byName.get(name))
+    .filter(Boolean);
+  const coupledVersions = new Set(coupledPackages.map((pkg) => pkg.version));
+  const mcp = byName.get(betterConvexPackages.mcp);
+  return [
+    {
+      id: "vue-nuxt",
+      label: "Vue/Nuxt coupled unit",
+      packages: coupledPackages,
+      version: coupledVersions.size === 1 ? coupledPackages[0]?.version : undefined,
+      tag: coupledVersions.size === 1 ? `v${coupledPackages[0]?.version}` : undefined,
+      valid: coupledPackages.length === 2 && coupledVersions.size === 1,
+    },
+    {
+      id: "mcp",
+      label: "MCP independent unit",
+      packages: mcp ? [mcp] : [],
+      version: mcp?.version,
+      tag: mcp ? `mcp-v${mcp.version}` : undefined,
+      valid: Boolean(mcp),
+    },
+  ];
+}
+
+export function evaluateIndependentReleaseUnits({ packages, registries = {}, checks, intents }) {
+  const units = deriveReleaseUnits("independent-family", packages);
+  const intentSet = new Set(intents);
+  const requiredSuffixes = ["manifest-channel", "provenance", "bytes-source", "tag", "github-release", "changelog"];
+  const evaluated = units.map((unit) => {
+    const hasIntent = unit.valid && intentSet.has(`${unit.id}@${unit.version}`);
+    const complete = unit.valid && unit.packages.every((pkg) => {
+      if (!registries[pkg.name]?.versions?.includes(unit.version)) return false;
+      return requiredSuffixes.every((suffix) => checks.some((check) => check.id === `npm:${pkg.name}@${unit.version}:${suffix}` && check.status === "PROVEN"));
+    });
+    return { ...unit, hasIntent, complete, incomplete: hasIntent && !complete };
+  });
+  const incomplete = evaluated.filter((unit) => unit.incomplete);
+  const status = incomplete.length > 1 ? "FAILED" : evaluated.every((unit) => unit.valid) ? "PROVEN" : "FAILED";
+  const evidence = incomplete.length > 1
+    ? `multiple incomplete release intents: ${incomplete.map((unit) => unit.tag).join(", ")}; finish the earlier unit before merging another intent`
+    : incomplete.length === 1
+      ? `one incomplete release intent: ${incomplete[0].tag}`
+      : "no ambiguous incomplete release intents";
+  return {
+    units: evaluated,
+    check: result(status, "independent-family-intents", evidence, incomplete.length > 1 ? { classification: "ambiguous-intents" } : {}),
+  };
+}
+
 export function evaluatePackageProfile(profile, packages, paths) {
   const names = packages.map((pkg) => pkg.name).sort();
   if (profile === "none") {
@@ -221,17 +279,17 @@ export function evaluatePackageProfile(profile, packages, paths) {
     const pass = packages.length > 1 && versions.size === 1 && paths.includes(".changeset/config.json");
     return [result(pass ? "PROVEN" : "FAILED", "package-inventory", `${names.join(", ") || "no public packages"}; ${versions.size === 1 ? "one version" : "versions differ"}; ${paths.includes(".changeset/config.json") ? "Changesets" : "Changesets missing"}`)];
   }
-  const expected = [
-    "@lupinum/better-convex-mcp",
-    "@lupinum/better-convex-nuxt",
-    "@lupinum/better-convex-vue",
-  ];
+  const expected = [betterConvexPackages.mcp, betterConvexPackages.nuxt, betterConvexPackages.vue];
   const byName = new Map(packages.map((pkg) => [pkg.name, pkg]));
   const exactFamily = names.length === expected.length && expected.every((name) => byName.has(name));
-  const coupled = byName.get("@lupinum/better-convex-nuxt")?.version
-    === byName.get("@lupinum/better-convex-vue")?.version;
+  const coupled = byName.get(betterConvexPackages.nuxt)?.version
+    === byName.get(betterConvexPackages.vue)?.version;
   const pass = profile === "independent-family" && exactFamily && coupled;
-  return [result(pass ? "PROVEN" : "FAILED", "package-inventory", `${names.join(", ") || "no public packages"}; Nuxt/Vue ${coupled ? "coupled" : "versions differ"}; MCP independent`)];
+  return [
+    result(pass ? "PROVEN" : "FAILED", "package-inventory", `${names.join(", ") || "no public packages"}`),
+    result(coupled ? "PROVEN" : "FAILED", "release-unit:vue-nuxt", coupled ? `Nuxt and Vue are coupled at ${byName.get(betterConvexPackages.nuxt)?.version}` : "Nuxt and Vue versions differ"),
+    result(byName.has(betterConvexPackages.mcp) ? "PROVEN" : "FAILED", "release-unit:mcp", byName.has(betterConvexPackages.mcp) ? `MCP is independently versioned at ${byName.get(betterConvexPackages.mcp).version}` : "MCP package missing"),
+  ];
 }
 
 export function evaluateReleaseIntent(profile, paths, manifests) {
@@ -362,13 +420,25 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
   const checks = [];
   const latest = registry.tags.latest;
   const next = registry.tags.next;
-  const soleBootstrap = registry.versions.length === 1 && latest === next && /-/u.test(latest ?? "");
-  const latestStatus = latest && !/-/u.test(latest)
+  const stableVersions = registry.versions.filter((version) => !/-/u.test(version));
+  const prereleaseOnly = registry.versions.length > 0 && stableVersions.length === 0;
+  const highestStable = stableVersions.toSorted((left, right) => {
+    const leftParts = left.split(".").map(Number);
+    const rightParts = right.split(".").map(Number);
+    for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+      if ((leftParts[index] ?? 0) !== (rightParts[index] ?? 0)) return (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    }
+    return 0;
+  }).at(-1);
+  const latestStatus = highestStable && latest === highestStable
     ? "PROVEN"
-    : soleBootstrap && profile === "independent-family"
+    : prereleaseOnly && profile === "independent-family"
       ? "HUMAN-ONLY"
       : "FAILED";
-  checks.push(result(latestStatus, `npm:${pkg.name}:latest`, soleBootstrap ? `${latest}; prerelease cleanup requires maintainer approval` : latest ?? "absent"));
+  const latestEvidence = prereleaseOnly && profile === "independent-family"
+    ? `${latest ?? "absent"}; no stable version exists, so changing prerelease-only latest requires maintainer approval`
+    : `${latest ?? "absent"}; expected=${highestStable ?? "a stable version"}`;
+  checks.push(result(latestStatus, `npm:${pkg.name}:latest`, latestEvidence));
   checks.push(result(!next || /-/u.test(next) ? "PROVEN" : "FAILED", `npm:${pkg.name}:next`, next ?? "absent"));
   for (const exception of registry.historicalExceptions ?? []) {
     checks.push(result("HUMAN-ONLY", `npm:${pkg.name}@${exception.version}:historical-exception`, `published ${exception.publishedAt}; fleet enforcement starts ${registry.historyCutoff}`));
@@ -518,7 +588,7 @@ function firstActionable(checks) {
     ?? checks.find((check) => check.status === "FAILED");
 }
 
-export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packages, registries = {}, checks }) {
+export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packages, registries = {}, checks, releaseUnit, hasIntent }) {
   const failed = checks.filter((check) => check.status === "FAILED");
   const unverified = checks.filter((check) => check.status === "UNVERIFIED");
   const historicalTag = checks.find((check) => check.classification === "historical-tag");
@@ -526,7 +596,8 @@ export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packa
   const blockingFailed = failed.filter((check) => check.classification !== "reconcile");
   const currentPublished = packages.map((pkg) => registries[pkg.name]?.versions?.includes(pkg.version) === true);
   let state;
-  if (unverified.length) state = "BLOCKED";
+  if (hasIntent === false) state = "NO RELEASE";
+  else if (unverified.length) state = "BLOCKED";
   else if (blockingFailed.length) state = "BLOCKED";
   else if (historicalTag || reconcile.length) state = "PARTIAL FAILURE";
   else if (profile === "none") state = "NO RELEASE";
@@ -545,10 +616,10 @@ export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packa
           : "Collect live retained-candidate evidence and rerun the fleet release audit."
       : "None.";
   const channels = new Set(packages.map((pkg) => /-/u.test(pkg.version) ? "next" : "latest"));
-  const releaseUnit = profile === "single-package" ? packages[0]?.name ?? repository
+  const derivedReleaseUnit = releaseUnit ?? (profile === "single-package" ? packages[0]?.name ?? repository
     : profile === "fixed-package-set" ? `${packages.length}-package fixed set`
       : profile === "independent-family" ? `${packages.length}-package family`
-        : repository;
+        : repository);
   const packageLines = packages.map((pkg) => {
     const integrity = registries[pkg.name]?.integrity?.[pkg.version];
     return `${pkg.name}@${pkg.version} — ${integrity ? `registry integrity ${integrity}` : "candidate digest not observed by fleet audit"}`;
@@ -556,7 +627,7 @@ export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packa
   return {
     state,
     profile,
-    releaseUnit,
+    releaseUnit: derivedReleaseUnit,
     sourceSha,
     ciRun: ciRun?.url ?? "unverified",
     channel: channels.size === 0 ? "none" : channels.size === 1 ? [...channels][0] : "per-package",
