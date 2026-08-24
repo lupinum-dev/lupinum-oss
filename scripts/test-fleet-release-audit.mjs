@@ -10,7 +10,7 @@ import {
   expectedTags,
   formatReleaseCard,
 } from "./fleet-release-policy.mjs";
-import { changelogForPackage, evaluateVerifiedProvenanceStatement, headingContainsVersion, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
+import { changelogForPackage, evaluateVerifiedProvenanceStatement, headingContainsVersion, releaseCandidateArtifactNames, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
 
 const action = "0123456789abcdef0123456789abcdef01234567";
 const packages = [{ name: "@lupinum/one", version: "1.0.0" }, { name: "@lupinum/two", version: "1.0.0" }];
@@ -121,12 +121,27 @@ jobs:
       - uses: actions/download-artifact@${action}
         with: { name: verified-release, path: candidate }
       - run: |
+          SOURCE_SHA=abcdef0123456789abcdef0123456789abcdef01
+          if ! tag_error="$(gh api --silent --method POST repos/lupinum-dev/one/git/refs -f ref=refs/tags/v1.0.0 -f sha="$SOURCE_SHA" 2>&1)"; then
+            if echo "$tag_error" | grep -Eq 'HTTP 403|Resource not accessible by integration'; then
+              echo "HUMAN-ONLY: create refs/tags/v1.0.0 at $SOURCE_SHA"
+            fi
+            exit 1
+          fi
+          tag_sha="$(gh api repos/lupinum-dev/one/git/ref/tags/v1.0.0 --jq .object.sha)"
+          test "$tag_sha" = "$SOURCE_SHA"
           if gh release view v1.0.0; then
             gh release edit v1.0.0 --notes-file candidate/release-notes.md
           else
             gh release create v1.0.0 --notes-file candidate/release-notes.md
           fi
 `;
+
+assert.deepEqual(
+  releaseCandidateArtifactNames([{ path: ".github/workflows/publish.yml", source: validWorkflow }]),
+  ["release-candidate"],
+  "The auditor must derive the source CI artifact from the run-bound download instead of fleet metadata.",
+);
 
 function check(checks, id) {
   const found = checks.find((item) => item.id === id);
@@ -257,6 +272,16 @@ const workflowMutations = [
     name: "create-only public history",
     id: "release-history-reconciliation",
     mutate: (source) => source.replace("gh release view", "gh api").replace("gh release edit", "gh api"),
+  },
+  {
+    name: "generic historical tag failure",
+    id: "release-history-reconciliation",
+    mutate: (source) => source.replace("HUMAN-ONLY:", "Tag failed:"),
+  },
+  {
+    name: "tag not read back",
+    id: "release-history-reconciliation",
+    mutate: (source) => source.replace("git/ref/tags/v1.0.0", "git/matching-refs/tags/v1.0.0"),
   },
 ];
 for (const fixture of workflowMutations) {
@@ -431,9 +456,65 @@ assert.equal(
 
 const missingHistory = structuredClone(publicHistory);
 missingHistory["1.1.0-beta.1"] = {};
-for (const suffix of ["tag", "github-release", "changelog"]) {
-  assert.equal(check(evaluateRegistryPackage(packages[0], registry, missingHistory), `npm:@lupinum/one@1.1.0-beta.1:${suffix}`).status, "FAILED");
-}
+const missingHistoryChecks = evaluateRegistryPackage(packages[0], registry, missingHistory);
+assert.equal(check(missingHistoryChecks, "npm:@lupinum/one@1.1.0-beta.1:tag").status, "UNVERIFIED");
+assert.equal(check(missingHistoryChecks, "npm:@lupinum/one@1.1.0-beta.1:github-release").status, "UNVERIFIED");
+assert.equal(check(missingHistoryChecks, "npm:@lupinum/one@1.1.0-beta.1:changelog").status, "FAILED");
+
+const historicalRecovery = structuredClone(publicHistory);
+historicalRecovery["1.1.0-beta.1"] = {
+  changelog: "CHANGELOG.md has the exact 1.1.0-beta.1 heading",
+  sourceCommit: "b".repeat(40),
+  currentMainSha: "c".repeat(40),
+  repository: "lupinum-dev/one",
+  retainedCandidate: { present: true, evidence: "release-candidate retained by successful CI 42" },
+};
+const historicalRecoveryChecks = evaluateRegistryPackage(packages[0], registry, historicalRecovery);
+const historicalTagCheck = check(historicalRecoveryChecks, "npm:@lupinum/one@1.1.0-beta.1:tag");
+assert.equal(historicalTagCheck.status, "HUMAN-ONLY");
+assert.equal(historicalTagCheck.classification, "historical-tag");
+assert.equal(
+  historicalTagCheck.nextAction,
+  `gh api --method POST repos/lupinum-dev/one/git/refs -f ref=refs/tags/v1.1.0-beta.1 -f sha=${"b".repeat(40)}`,
+);
+assert.equal(check(historicalRecoveryChecks, "npm:@lupinum/one@1.1.0-beta.1:github-release").status, "HUMAN-ONLY");
+const historicalRecoveryCard = deriveReleaseCard({
+  repository: "lupinum-dev/one",
+  profile: "single-package",
+  sourceSha: "c".repeat(40),
+  packages: [{ ...packages[0], version: "1.1.0-beta.1" }],
+  registries: { [packages[0].name]: registry },
+  checks: historicalRecoveryChecks,
+});
+assert.equal(historicalRecoveryCard.state, "PARTIAL FAILURE");
+assert.equal(historicalRecoveryCard.nextAction, historicalTagCheck.nextAction);
+
+const currentRecovery = structuredClone(historicalRecovery);
+currentRecovery["1.1.0-beta.1"].currentMainSha = "b".repeat(40);
+const currentRecoveryChecks = evaluateRegistryPackage(packages[0], registry, currentRecovery);
+assert.equal(check(currentRecoveryChecks, "npm:@lupinum/one@1.1.0-beta.1:tag").classification, "reconcile");
+assert.equal(deriveReleaseCard({
+  repository: "lupinum-dev/one",
+  profile: "single-package",
+  sourceSha: "b".repeat(40),
+  packages: [{ ...packages[0], version: "1.1.0-beta.1" }],
+  registries: { [packages[0].name]: registry },
+  checks: currentRecoveryChecks,
+}).state, "PARTIAL FAILURE");
+
+const expiredRecovery = structuredClone(historicalRecovery);
+expiredRecovery["1.1.0-beta.1"].retainedCandidate = { present: false, evidence: "release-candidate expired" };
+const expiredRecoveryChecks = evaluateRegistryPackage(packages[0], registry, expiredRecovery);
+assert.equal(check(expiredRecoveryChecks, "npm:@lupinum/one@1.1.0-beta.1:retained-candidate").status, "UNVERIFIED");
+assert.equal(check(expiredRecoveryChecks, "npm:@lupinum/one@1.1.0-beta.1:tag").status, "UNVERIFIED");
+assert.equal(deriveReleaseCard({
+  repository: "lupinum-dev/one",
+  profile: "single-package",
+  sourceSha: "c".repeat(40),
+  packages: [{ ...packages[0], version: "1.1.0-beta.1" }],
+  registries: { [packages[0].name]: registry },
+  checks: expiredRecoveryChecks,
+}).state, "BLOCKED");
 
 const mcp = { name: "@lupinum/better-convex-mcp", version: "0.1.0-beta.2" };
 assert.deepEqual(expectedTags("independent-family", mcp, mcp.version), ["mcp-v0.1.0-beta.2"]);

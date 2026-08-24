@@ -35,6 +35,26 @@ const npmJson = (args) => JSON.parse(run("npm", ["view", ...args, "--json"]) || 
 const encoded = (value) => encodeURIComponent(value);
 const environmentName = (job) => typeof job?.environment === "string" ? job.environment : job?.environment?.name;
 
+export function releaseCandidateArtifactNames(workflows) {
+  const names = new Set();
+  for (const { source } of workflows) {
+    const workflow = parse(source);
+    for (const job of Object.values(workflow.jobs ?? {})) {
+      for (const step of job.steps ?? []) {
+        const runId = step.with?.["run-id"];
+        const name = step.with?.name;
+        if (String(step.uses ?? "").startsWith("actions/download-artifact@")
+          && typeof runId === "string"
+          && typeof name === "string"
+          && !name.includes("${{")) {
+          names.add(name);
+        }
+      }
+    }
+  }
+  return [...names];
+}
+
 function repositoryRulesets(repository) {
   return ghJson(`repos/${repository}/rulesets?per_page=100`)
     .map((ruleset) => ghJson(`repos/${repository}/rulesets/${ruleset.id}`))
@@ -54,6 +74,7 @@ function repositoryState(entry) {
     .map((entry) => ({ ...entry.manifest, manifestPath: entry.path }));
   const workflowFiles = paths.filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(path));
   const workflows = workflowFiles.map((path) => ({ path, source: ghRaw(`repos/${entry.repository}/contents/${path}?ref=${sha}`) }));
+  const candidateArtifactNames = releaseCandidateArtifactNames(workflows);
   const actions = ghJson(`repos/${entry.repository}/actions/permissions/workflow`);
   const successfulRuns = ghJson(`repos/${entry.repository}/actions/runs?head_sha=${sha}&status=success&per_page=100`).workflow_runs ?? [];
   const currentMainCi = successfulRuns.find((workflowRun) => workflowRun.event === "push"
@@ -120,6 +141,7 @@ function repositoryState(entry) {
     packages,
     packageManifests,
     workflows,
+    candidateArtifactNames,
     actions,
     environment,
     secretNames,
@@ -134,6 +156,47 @@ function repositoryState(entry) {
     previewWorkflow,
     vercel,
   };
+}
+
+function retainedCandidateForSource(state, sourceCommit) {
+  state.retainedCandidateCache ??= new Map();
+  if (state.retainedCandidateCache.has(sourceCommit)) return state.retainedCandidateCache.get(sourceCommit);
+  if (!/^[0-9a-f]{40}$/u.test(sourceCommit ?? "")) {
+    const unavailable = { present: false, evidence: "verified provenance did not provide one source commit" };
+    state.retainedCandidateCache.set(sourceCommit, unavailable);
+    return unavailable;
+  }
+  if (state.candidateArtifactNames.length !== 1) {
+    const unavailable = {
+      present: false,
+      evidence: `expected one source CI artifact name; found ${state.candidateArtifactNames.join(", ") || "none"}`,
+    };
+    state.retainedCandidateCache.set(sourceCommit, unavailable);
+    return unavailable;
+  }
+  const runs = ghJson(`repos/${state.metadata.full_name}/actions/workflows/ci.yml/runs?head_sha=${sourceCommit}&event=push&status=completed&per_page=100`).workflow_runs ?? [];
+  const expectedName = state.candidateArtifactNames[0];
+  for (const run of runs.filter((candidate) => candidate.conclusion === "success"
+    && candidate.event === "push"
+    && candidate.head_branch === state.metadata.default_branch
+    && candidate.head_sha === sourceCommit)) {
+    const artifacts = ghJson(`repos/${state.metadata.full_name}/actions/runs/${run.id}/artifacts?per_page=100`).artifacts ?? [];
+    const artifact = artifacts.find((candidate) => candidate.name === expectedName && candidate.expired === false);
+    if (artifact) {
+      const retained = {
+        present: true,
+        runId: run.id,
+        url: run.html_url,
+        artifactName: artifact.name,
+        evidence: `${artifact.name} retained by successful CI ${run.id}`,
+      };
+      state.retainedCandidateCache.set(sourceCommit, retained);
+      return retained;
+    }
+  }
+  const unavailable = { present: false, evidence: `${expectedName} is not retained by successful source CI for ${sourceCommit}` };
+  state.retainedCandidateCache.set(sourceCommit, unavailable);
+  return unavailable;
 }
 
 export function evaluateVerifiedProvenanceStatement(statement, pkg, version, integrity, expectedWorkflow) {
@@ -257,13 +320,17 @@ async function releaseState(state, pkg, versions, profile, registry) {
     const changelog = changelogForPackage(state.changelogs, pkg, version, profile);
     const expectedTarball = `${pkg.name.replace(/^@/u, "").replace("/", "-")}-${version}.tgz`;
     const asset = release?.assets.find((entry) => entry.name === expectedTarball);
+    const sourceCommit = typeof registry.provenance[version] === "object" ? registry.provenance[version]?.sourceCommit : undefined;
     return [version, {
       tag: tag?.name,
       tagTarget: tag?.targetSha,
       release: release?.tag,
       prerelease: release?.prerelease,
       changelog: changelog ? `${changelog.path} has the exact ${version} heading` : undefined,
-      sourceCommit: typeof registry.provenance[version] === "object" ? registry.provenance[version]?.sourceCommit : undefined,
+      sourceCommit,
+      currentMainSha: state.sha,
+      repository: state.metadata.full_name,
+      retainedCandidate: retainedCandidateForSource(state, sourceCommit),
       assetName: asset?.name,
       assetIntegrity: await assetIntegrity(asset),
     }];
