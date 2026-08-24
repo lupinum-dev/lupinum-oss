@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   auditExitCode,
+  deriveReleaseUnits,
   deriveReleaseCard,
   evaluateGitHubSecurity,
+  evaluateIndependentReleaseUnits,
   evaluatePackageProfile,
   evaluateRegistryPackage,
   evaluateReleaseIntent,
@@ -534,6 +536,63 @@ const mcpRegistry = { tags: { latest: mcp.version, next: mcp.version }, versions
 const historicalChecks = evaluateRegistryPackage(mcp, mcpRegistry, {}, "independent-family");
 assert.ok(historicalChecks.every((item) => item.status !== "FAILED"), "Explicit pre-contract history was falsely rejected.");
 assert.equal(check(historicalChecks, `npm:${mcp.name}@${mcp.version}:historical-exception`).status, "HUMAN-ONLY");
+
+const familyPackages = [
+  { name: "@lupinum/better-convex-vue", version: "1.0.0-beta.1" },
+  { name: "@lupinum/better-convex-nuxt", version: "1.0.0-beta.1" },
+  { name: "@lupinum/better-convex-mcp", version: "0.4.0-beta.2" },
+];
+const familyUnits = deriveReleaseUnits("independent-family", familyPackages);
+assert.deepEqual(familyUnits.map((unit) => [unit.id, unit.version, unit.tag, unit.packages.length]), [
+  ["vue-nuxt", "1.0.0-beta.1", "v1.0.0-beta.1", 2],
+  ["mcp", "0.4.0-beta.2", "mcp-v0.4.0-beta.2", 1],
+]);
+assert.equal(check(evaluatePackageProfile("independent-family", [
+  familyPackages[0],
+  { ...familyPackages[1], version: "1.0.0-beta.2" },
+  familyPackages[2],
+], []), "release-unit:vue-nuxt").status, "FAILED", "The coupled unit must reject mismatched versions.");
+
+const completeUnitChecks = (unit) => unit.packages.flatMap((pkg) => ["manifest-channel", "provenance", "bytes-source", "tag", "github-release", "changelog"]
+  .map((suffix) => ({ status: "PROVEN", id: `npm:${pkg.name}@${unit.version}:${suffix}`, evidence: "verified" })));
+const familyRegistries = Object.fromEntries(familyPackages.map((pkg) => [pkg.name, { versions: [pkg.version] }]));
+const completedVueNuxt = evaluateIndependentReleaseUnits({
+  packages: familyPackages,
+  registries: familyRegistries,
+  checks: completeUnitChecks(familyUnits[0]),
+  intents: ["vue-nuxt@1.0.0-beta.1"],
+});
+assert.equal(completedVueNuxt.check.status, "PROVEN");
+assert.equal(completedVueNuxt.units[0].complete, true, "A verified coupled publication must complete as one release unit.");
+assert.equal(completedVueNuxt.units[1].hasIntent, false, "MCP must remain independent from a Vue/Nuxt intent.");
+
+const partialVueNuxt = evaluateIndependentReleaseUnits({
+  packages: familyPackages,
+  registries: { ...familyRegistries, [familyPackages[1].name]: { versions: [] } },
+  checks: completeUnitChecks(familyUnits[0]).filter((item) => !item.id.includes(familyPackages[1].name)),
+  intents: ["vue-nuxt@1.0.0-beta.1"],
+});
+assert.equal(partialVueNuxt.check.status, "PROVEN", "One partial release unit is actionable, not ambiguous.");
+assert.equal(partialVueNuxt.units[0].incomplete, true);
+
+const ambiguousFamily = evaluateIndependentReleaseUnits({
+  packages: familyPackages,
+  registries: Object.fromEntries(familyPackages.map((pkg) => [pkg.name, { versions: [] }])),
+  checks: [],
+  intents: ["vue-nuxt@1.0.0-beta.1", "mcp@0.4.0-beta.2"],
+});
+assert.equal(ambiguousFamily.check.status, "FAILED");
+assert.equal(ambiguousFamily.check.classification, "ambiguous-intents");
+assert.match(ambiguousFamily.check.evidence, /finish the earlier unit/u);
+
+const prereleaseHistory = {
+  tags: { latest: "0.8.0-beta.40", next: "1.0.0-beta.1" },
+  versions: ["0.8.0-beta.28", "0.8.0-beta.40", "1.0.0-beta.1"],
+  provenance: {}, integrity: {}, relevantVersions: [], historicalExceptions: [],
+};
+assert.equal(check(evaluateRegistryPackage(familyPackages[0], prereleaseHistory, {}, "independent-family"), `npm:${familyPackages[0].name}:latest`).status, "HUMAN-ONLY", "Prerelease-only latest is an explicit maintainer exception even after multiple bootstrap betas.");
+const stableHistory = { ...prereleaseHistory, versions: [...prereleaseHistory.versions, "1.0.0"], tags: { latest: "0.8.0-beta.40", next: "1.0.0-beta.1" } };
+assert.equal(check(evaluateRegistryPackage({ ...familyPackages[0], version: "1.0.0" }, stableHistory, {}, "independent-family"), `npm:${familyPackages[0].name}:latest`).status, "FAILED", "A prerelease latest becomes invalid after a stable version exists.");
 
 const completeChecks = [{ status: "PROVEN", id: "complete", evidence: "ok" }];
 const completeCard = deriveReleaseCard({ repository: "lupinum-dev/one", profile: "single-package", sourceSha: "abc", ciRun: { url: "https://github.example/runs/1" }, packages: [packages[0]], registries: { [packages[0].name]: registry }, checks: completeChecks });

@@ -7,7 +7,9 @@ import { parse } from "yaml";
 import { verify as verifySigstore } from "sigstore";
 import {
   auditExitCode,
+  deriveReleaseUnits,
   deriveReleaseCard,
+  evaluateIndependentReleaseUnits,
   evaluateGitHubSecurity,
   evaluatePackageProfile,
   evaluateRegistryPackage,
@@ -351,7 +353,30 @@ function normalizeDeploymentChecks(checks) {
   return checks.map((check) => ({ ...check, status: check.status.toUpperCase() }));
 }
 
-function printRepository(entry, state, checks, registries) {
+function printRepository(entry, state, checks, registries, independentFamily) {
+  if (entry.releaseProfile === "independent-family" && independentFamily) {
+    console.log(`\n${entry.repository} [${entry.releaseProfile}]`);
+    for (const unit of independentFamily.units) {
+      const packagePrefixes = unit.packages.map((pkg) => `npm:${pkg.name}`);
+      const unitChecks = checks.filter((check) => !check.id.startsWith("npm:")
+        || packagePrefixes.some((prefix) => check.id === prefix || check.id.startsWith(`${prefix}:`) || check.id.startsWith(`${prefix}@`)));
+      const card = deriveReleaseCard({
+        repository: entry.repository,
+        profile: entry.releaseProfile,
+        sourceSha: state?.sha ?? "unverified",
+        ciRun: state?.currentMainCi,
+        packages: unit.packages,
+        registries: Object.fromEntries(unit.packages.map((pkg) => [pkg.name, registries[pkg.name]])),
+        checks: unitChecks,
+        releaseUnit: unit.label,
+        hasIntent: unit.valid ? unit.hasIntent : undefined,
+      });
+      console.log(`\n${formatReleaseCard(card)}`);
+    }
+    console.log("\nEvidence:");
+    for (const check of checks) console.log(`- ${check.status} ${check.id}: ${check.evidence}`);
+    return;
+  }
   const card = deriveReleaseCard({
     repository: entry.repository,
     profile: entry.releaseProfile,
@@ -377,6 +402,7 @@ async function main() {
     let state;
     const registries = {};
     let checks;
+    let independentFamily;
     try {
       state = repositoryState(entry);
       checks = [
@@ -414,10 +440,17 @@ async function main() {
           checks.push({ status: "UNVERIFIED", id: `npm:${pkg.name}`, evidence: error.message });
         }
       }
+      if (entry.releaseProfile === "independent-family") {
+        const intents = deriveReleaseUnits(entry.releaseProfile, state.packages)
+          .filter((unit) => unit.valid && unit.packages.every((pkg) => changelogForPackage(state.changelogs, pkg, unit.version, entry.releaseProfile)))
+          .map((unit) => `${unit.id}@${unit.version}`);
+        independentFamily = evaluateIndependentReleaseUnits({ packages: state.packages, registries, checks, intents });
+        checks.push(independentFamily.check);
+      }
     } catch (error) {
       checks = [{ status: "UNVERIFIED", id: "repository-audit", evidence: error.message }];
     }
-    printRepository(entry, state, checks, registries);
+    printRepository(entry, state, checks, registries, independentFamily);
     const repositoryExit = auditExitCode(checks);
     if (repositoryExit === 1 || (repositoryExit === 2 && exitCode === 0)) exitCode = repositoryExit;
   }
