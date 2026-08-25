@@ -22,11 +22,11 @@ Directory because the documentation build needs this workspace package. Keep
 
 ## First npm release
 
-The package must exist before npm can bind a trusted publisher. Download the exact tarball from the successful main CI release-candidate artifact and verify its SHA-256. Publish that same file once with 2FA, `--access public`, `--tag latest`, and `--ignore-scripts`. Then bind `publish.yml` and environment `npm` as the trusted publisher. Dispatch `publish.yml` for the same version. It finds the successful CI artifact for the exact current `main` commit. It accepts missing provenance only when the registry bytes match and this is the sole published version. It checks the dist-tag and records the bootstrap exception in the GitHub release. Never rebuild the bootstrap artifact or create the tag manually.
+The package must exist before npm can bind a trusted publisher. Download the exact tarball from the successful main CI release-candidate artifact and verify its SHA-256. Publish that same file once with 2FA, `--access public`, the correct dist-tag, and `--ignore-scripts`. Then bind `publish.yml` and environment `npm` as the trusted publisher. Dispatch `publish.yml` for the same version. It derives bootstrap state only when the registry bytes match and this is the sole published version. It records the exception in the GitHub release. Never rebuild the artifact or provide a bootstrap switch.
 
 ## Normal release
 
-Update `CHANGELOG.md` with `pnpm release:prepare` in a focused pull request. Merge after `pnpm release:verify` and CI pass. Dispatch `publish.yml` from current `main` with the exact package version. Approve the protected `npm` environment. The workflow finds and publishes the retained artifact from the exact successful `main` CI run, then creates the GitHub release.
+Update `CHANGELOG.md` with `pnpm release:prepare` in a focused pull request. Merge after `pnpm release:verify` and CI pass. Dispatch `publish.yml` from current `main` with the reviewed package version. The workflow derives every other value from exact successful `main` CI. It requests npm approval only when publication is required and repairs the tag or GitHub release separately.
 
 ## Rollback
 

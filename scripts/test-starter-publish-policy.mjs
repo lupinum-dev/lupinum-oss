@@ -29,18 +29,30 @@ for (const profile of profiles) {
     '{{PACKAGE_NAME}}',
     profile.packages[0],
   )
+  assert(!workflow.includes('allow_bootstrap'), `${profile.name} accepts a bootstrap switch.`)
+  assert(!workflow.includes('bootstrap_packages'), `${profile.name} accepts a bootstrap package list.`)
+  assert(
+    workflow.includes("if: needs.verify-candidate.outputs.publish-required == 'true'"),
+    `${profile.name} does not skip the protected npm job for a no-op.`,
+  )
+  assert(
+    workflow.includes("if: always() && needs.verify-candidate.result == 'success'"),
+    `${profile.name} cannot repair a GitHub Release after skipped publication.`,
+  )
+  assert(workflow.includes('HUMAN-ONLY:'), `${profile.name} has no actionable historical-tag failure.`)
+  assert(workflow.includes('git ls-remote origin'), `${profile.name} does not verify a maintainer-created tag.`)
+  assert(workflow.includes('## Release summary'), `${profile.name} has no pre-approval release summary.`)
+  assert(workflow.includes('Next action:'), `${profile.name} does not report one maintainer action.`)
+  assert(workflow.includes('dist.integrity'), `${profile.name} does not read npm integrity for Release assets.`)
+  assert(workflow.includes('sha512-'), `${profile.name} does not compare Release assets by SHA-512.`)
+  assert(workflow.includes('if test "$RUN_ATTEMPT" = 1'), `${profile.name} does not distinguish first attempts from retries.`)
+  assert(workflow.includes('merge_base_commit.sha'), `${profile.name} cannot safely retry an original candidate after main advances.`)
+  assert(workflow.includes('retention-days: 90'), `${profile.name} does not retain verified release evidence.`)
   const match = /node --input-type=module <<'NODE'\n([\s\S]*?)\n\s+NODE/.exec(workflow)
   assert(match, `${profile.name} publish workflow has no inline publication program.`)
   const program = dedent(match[1])
 
   runScenario(profile, program, 'matching bootstrap bytes', {
-    bootstrapPackages: profile.packages,
-    existing: profile.packages,
-    expectedPublishes: 0,
-  })
-  runScenario(profile, program, 'bootstrap waits for registry visibility', {
-    bootstrapPackages: profile.packages,
-    delayedVisibility: profile.packages[0],
     existing: profile.packages,
     expectedPublishes: 0,
   })
@@ -50,7 +62,6 @@ for (const profile of profiles) {
   })
   if (profile.packages.length > 1) {
     runScenario(profile, program, 'mixed package sets recover safely', {
-      bootstrapPackages: profile.packages.slice(0, 1),
       existing: profile.packages.slice(0, 1),
       expectedPublishes: profile.packages.length - 1,
     })
@@ -67,20 +78,14 @@ for (const profile of profiles) {
     expectedError: 'did not expose the required bytes',
   })
   runScenario(profile, program, 'later provenance-free versions fail', {
-    bootstrapPackages: profile.packages,
     existing: profile.packages,
     extraVersion: profile.packages[0],
     expectedError: 'is not the first package version and has no provenance',
   })
   runScenario(profile, program, 'bootstrap status is rechecked', {
-    bootstrapPackages: profile.packages,
     existing: profile.packages,
     laterVersionDuringVerification: profile.packages[0],
     expectedError: 'did not expose the required bytes',
-  })
-  runScenario(profile, program, 'bootstrap requires explicit authorization', {
-    existing: profile.packages,
-    expectedError: 'requires explicit bootstrap authorization',
   })
   runScenario(profile, program, 'new provenance-free publications fail', {
     existing: [],
@@ -161,8 +166,6 @@ function runScenario(profile, program, scenario, options) {
       encoding: 'utf8',
       env: {
         ...process.env,
-        ALLOW_BOOTSTRAP: profile.name === 'library' && options.bootstrapPackages?.includes(profile.packages[0]) ? 'true' : 'false',
-        BOOTSTRAP_PACKAGES: profile.name === 'library-monorepo' ? (options.bootstrapPackages ?? []).join(',') : '',
         PATH: `${binDir}:${process.env.PATH}`,
         FAKE_NPM_STATE: statePath,
         GITHUB_OUTPUT: outputPath,

@@ -7,11 +7,6 @@ on:
         description: Exact package version from package.json
         required: true
         type: string
-      allow_bootstrap:
-        description: Authorize exact first-version recovery without npm provenance
-        required: false
-        default: false
-        type: boolean
 
 permissions: {}
 
@@ -24,6 +19,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions: { actions: read, contents: read }
+    outputs:
+      bootstrap: ${{ steps.registry.outputs.bootstrap }}
+      bootstrap-packages: ${{ steps.registry.outputs.bootstrap-packages }}
+      modes: ${{ steps.registry.outputs.modes }}
+      publish-required: ${{ steps.registry.outputs.publish-required }}
     steps:
       - name: Find successful current-main CI
         id: ci
@@ -31,9 +31,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_REF: "${{ github.ref }}"
           RELEASE_VERSION: "${{ inputs.version }}"
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           test "$RELEASE_REF" = refs/heads/main
           node -e "if (!/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RELEASE_VERSION)) throw new Error('Invalid version')"
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if test "$RUN_ATTEMPT" = 1; then
+            test "$current_main" = "$GITHUB_SHA"
+          else
+            comparison="$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...$current_main")"
+            test "$(jq -r .merge_base_commit.sha <<< "$comparison")" = "$GITHUB_SHA"
+          fi
           run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=20" --jq '.workflow_runs | map(select(.conclusion == "success" and .head_branch == "main")) | first | .id // empty')"
           test -n "$run_id"
           printf 'run-id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
@@ -50,15 +58,70 @@ jobs:
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
           test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
+          tarball="$(node -p "require('./release.json').filename")"
+          test "$(tar -xOf "$tarball" package/package.json | node -e "let input='';process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>process.stdout.write(JSON.parse(input).name))")" = '{{PACKAGE_NAME}}'
+          test "$(tar -xOf "$tarball" package/package.json | node -e "let input='';process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>process.stdout.write(JSON.parse(input).version))")" = "$RELEASE_VERSION"
+          channel=latest; [[ "$RELEASE_VERSION" == *-* ]] && channel=next
+          test "$(node -p "require('./release.json').distTag")" = "$channel"
+      - name: Derive registry state
+        id: registry
+        working-directory: release-artifacts
+        env: { RELEASE_VERSION: "${{ inputs.version }}" }
+        run: |
+          node <<'NODE'
+          const { spawnSync } = require('node:child_process')
+          const { appendFileSync, readFileSync } = require('node:fs')
+          const fail = message => { throw new Error(message) }
+          const view = (spec, field) => {
+            const result = spawnSync('npm', ['view', spec, field, '--json'], { encoding: 'utf8' })
+            if (result.status === 0) return JSON.parse(result.stdout.trim() || 'null')
+            if (/E404|404 Not Found/.test(result.stderr)) return null
+            fail(`npm view failed for ${spec} ${field}: ${result.stderr.trim()}`)
+          }
+          const record = JSON.parse(readFileSync('release.json', 'utf8'))
+          const spec = `${record.name}@${record.version}`
+          const existing = view(spec, 'dist.shasum')
+          if (existing && existing !== record.shasum) fail(`${spec} exists with different bytes.`)
+          let mode = 'oidc'
+          if (existing) {
+            const attestations = view(spec, 'dist.attestations')
+            if (!attestations) {
+              const published = view(record.name, 'versions')
+              const versions = Array.isArray(published) ? published : [published]
+              if (versions.length !== 1 || versions[0] !== record.version) {
+                fail(`${spec} is not the first package version and has no provenance.`)
+              }
+              mode = 'bootstrap'
+            }
+            if (view(record.name, `dist-tags.${record.distTag}`) !== record.version) {
+              fail(`${spec} is not on ${record.distTag}.`)
+            }
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `publish-required=${String(!existing)}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap=${String(mode === 'bootstrap')}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `bootstrap-packages=${mode === 'bootstrap' ? record.name : ''}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `modes=${JSON.stringify({ [record.name]: mode })}\n`)
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            '## Release summary',
+            `- Source: \`${process.env.GITHUB_SHA}\``,
+            `- Package: \`${record.name}@${record.version}\``,
+            `- Channel: \`${record.distTag}\``,
+            `- Artifact SHA-256: \`${record.sha256}\``,
+            `- Registry mode: \`${mode}\``,
+            `- Next action: ${existing ? 'GitHub Release reconciliation continues without npm approval.' : 'Approve the protected npm environment.'}`,
+            '',
+          ].join('\n'))
+          NODE
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: verified-release
           path: release-artifacts
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   publish:
     needs: verify-candidate
+    if: needs.verify-candidate.outputs.publish-required == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: npm
@@ -66,10 +129,6 @@ jobs:
       actions: read
       contents: read
       id-token: write
-    outputs:
-      bootstrap: ${{ steps.publish.outputs.bootstrap }}
-      bootstrap-packages: ${{ steps.publish.outputs.bootstrap-packages }}
-      modes: ${{ steps.publish.outputs.modes }}
     steps:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with: { node-version: 24.18.0, registry-url: 'https://registry.npmjs.org', package-manager-cache: false }
@@ -78,7 +137,7 @@ jobs:
       - name: Verify and publish inert artifact
         id: publish
         working-directory: release-artifacts
-        env: { ALLOW_BOOTSTRAP: "${{ inputs.allow_bootstrap }}", RELEASE_VERSION: "${{ inputs.version }}" }
+        env: { RELEASE_VERSION: "${{ inputs.version }}" }
         run: |
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').version")" = "$RELEASE_VERSION"
@@ -112,13 +171,6 @@ jobs:
           const pollDelayMs = Number(process.env.REGISTRY_POLL_DELAY_MS || 5000)
           if (!Number.isInteger(pollDelayMs) || pollDelayMs < 0) fail('Invalid registry poll delay.')
           let existing = view(spec, 'dist.shasum')
-          if (!existing && process.env.ALLOW_BOOTSTRAP === 'true') {
-            for (let attempt = 0; attempt < maxAttempts && !existing; attempt += 1) {
-              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, pollDelayMs)
-              existing = view(spec, 'dist.shasum')
-            }
-            if (!existing) fail(`${spec} was authorized for bootstrap recovery but is still not visible.`)
-          }
           if (existing && existing !== record.shasum) fail(`${spec} exists with different bytes.`)
           let mode
           if (existing) {
@@ -127,9 +179,6 @@ jobs:
             const versions = Array.isArray(published) ? published : [published]
             if (!attestations && (versions.length !== 1 || versions[0] !== record.version)) {
               fail(`${spec} is not the first package version and has no provenance.`)
-            }
-            if (!attestations && process.env.ALLOW_BOOTSTRAP !== 'true') {
-              fail(`${spec} requires explicit bootstrap authorization.`)
             }
             mode = attestations ? 'oidc' : 'bootstrap'
           } else {
@@ -165,7 +214,8 @@ jobs:
           NODE
 
   github-release:
-    needs: publish
+    needs: [verify-candidate, publish]
+    if: always() && needs.verify-candidate.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -178,14 +228,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
-          BOOTSTRAP_RELEASE: ${{ needs.publish.outputs.bootstrap }}
-          BOOTSTRAP_PACKAGES: ${{ needs.publish.outputs.bootstrap-packages }}
+          BOOTSTRAP_RELEASE: ${{ needs.verify-candidate.outputs.bootstrap }}
+          BOOTSTRAP_PACKAGES: ${{ needs.verify-candidate.outputs.bootstrap-packages }}
         run: |
           cd release-artifacts
           sha256sum --check --strict SHA256SUMS
           test "$(node -p "require('./release.json').sourceSha")" = "$GITHUB_SHA"
           tarball="$(node -p "require('./release.json').filename")"
-          prerelease=(); [[ "$RELEASE_VERSION" == *-* ]] && prerelease=(--prerelease)
+          prerelease=(); prerelease_edit=(--prerelease=false)
+          if [[ "$RELEASE_VERSION" == *-* ]]; then prerelease=(--prerelease); prerelease_edit=(--prerelease); fi
           test -s release-notes.md
           cp release-notes.md github-release-notes.md
           if [ "$BOOTSTRAP_RELEASE" = true ]; then
@@ -196,11 +247,60 @@ jobs:
           NOTICE
             printf '> Bootstrap packages: %s\n' "$BOOTSTRAP_PACKAGES" >> github-release-notes.md
           fi
-          if gh release view "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$RELEASE_VERSION" --jq '.object.sha')"
-            test "$tag_sha" = "$GITHUB_SHA"
-            gh release upload "v$RELEASE_VERSION" "$tarball" release.json SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --title "v$RELEASE_VERSION" --notes-file github-release-notes.md
-          else
-            gh release create "v$RELEASE_VERSION" "$tarball" release.json SHA256SUMS --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "v$RELEASE_VERSION" --notes-file github-release-notes.md "${prerelease[@]}"
+          tag_ref="refs/tags/v$RELEASE_VERSION"
+          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v$RELEASE_VERSION" --jq ".[] | select(.ref == \"$tag_ref\") | [.object.type, .object.sha] | @tsv")"
+          release_response=""
+          if release_response="$(gh api --include --silent "repos/$GITHUB_REPOSITORY/releases/tags/v$RELEASE_VERSION" 2>&1)"; then :; else :; fi
+          release_status="$(awk 'toupper($1) ~ /^HTTP\// { status=$2 } END { print status }' <<< "$release_response")"
+          case "$release_status" in
+            200) release_exists=true ;;
+            404) release_exists=false ;;
+            *) echo "GitHub Release lookup failed with HTTP status ${release_status:-unknown}." >&2; exit 1 ;;
+          esac
+          if test -z "$tag_object" && test "$release_exists" = true; then
+            echo "A GitHub Release exists without its certified tag." >&2
+            exit 1
           fi
+          if test -z "$tag_object"; then
+            error_file="$(mktemp)"
+            if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="$tag_ref" -f sha="$GITHUB_SHA" > /dev/null 2>"$error_file"; then
+              if grep -Eq 'Resource not accessible by integration|HTTP 403' "$error_file"; then
+                echo "HUMAN-ONLY: GitHub could not create tag v$RELEASE_VERSION at certified commit $GITHUB_SHA." >&2
+                echo "Run: git fetch origin && git tag v$RELEASE_VERSION $GITHUB_SHA && git push origin refs/tags/v$RELEASE_VERSION" >&2
+                echo "Then verify: git ls-remote origin refs/tags/v$RELEASE_VERSION | awk '{print \$1}' | grep -Fx $GITHUB_SHA" >&2
+                echo "Finally rerun only this failed GitHub release job; do not rebuild or republish." >&2
+              fi
+              cat "$error_file" >&2
+              exit 1
+            fi
+            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$RELEASE_VERSION" --jq '[.object.type, .object.sha] | @tsv')"
+          fi
+          IFS=$'\t' read -r tag_type tag_sha <<< "$tag_object"
+          while test "$tag_type" = tag; do
+            tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq '[.object.type, .object.sha] | @tsv')"
+            IFS=$'\t' read -r tag_type tag_sha <<< "$tag_object"
+          done
+          test "$tag_type" = commit
+          test "$tag_sha" = "$GITHUB_SHA"
+          if test "$release_exists" = true; then
+            gh release upload "v$RELEASE_VERSION" "$tarball" release.json SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --title "v$RELEASE_VERSION" --notes-file github-release-notes.md "${prerelease_edit[@]}"
+          else
+            gh release create "v$RELEASE_VERSION" "$tarball" release.json SHA256SUMS --repo "$GITHUB_REPOSITORY" --verify-tag --title "v$RELEASE_VERSION" --notes-file github-release-notes.md "${prerelease[@]}"
+          fi
+          asset_dir="$(mktemp -d)"
+          gh release download "v$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --pattern '*.tgz' --dir "$asset_dir"
+          RELEASE_ASSET_DIR="$asset_dir" node <<'NODE'
+          const { spawnSync } = require('node:child_process')
+          const { createHash } = require('node:crypto')
+          const { readFileSync, readdirSync } = require('node:fs')
+          const { join } = require('node:path')
+          const record = JSON.parse(readFileSync('release.json', 'utf8'))
+          const result = spawnSync('npm', ['view', `${record.name}@${record.version}`, 'dist.integrity', '--json'], { encoding: 'utf8' })
+          if (result.status !== 0) throw new Error(`npm integrity lookup failed: ${result.stderr.trim()}`)
+          const integrity = JSON.parse(result.stdout)
+          const matches = readdirSync(process.env.RELEASE_ASSET_DIR)
+            .filter(file => file.endsWith('.tgz'))
+            .some(file => `sha512-${createHash('sha512').update(readFileSync(join(process.env.RELEASE_ASSET_DIR, file))).digest('base64')}` === integrity)
+          if (!matches) throw new Error('No GitHub Release package asset matches npm integrity.')
+          NODE

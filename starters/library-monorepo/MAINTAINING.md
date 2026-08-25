@@ -22,11 +22,11 @@ in `docs/`.
 
 ## First npm release
 
-Download every exact tarball from the successful main CI release-candidate artifact and verify it. Publish the tarballs once, in dependency order, with 2FA, `latest`, public access, and scripts disabled. Bind every package to `publish.yml` and environment `npm`. Then dispatch `publish.yml` for the same version and list the exact manually published names in `bootstrap_packages`. It finds the successful CI artifact for the exact current `main` commit. It accepts missing provenance only for those packages when their registry bytes match and each is that package's sole published version. It safely resumes a mixed package set, checks every dist-tag, and records the bootstrap package names in the GitHub release. Never rebuild the bootstrap artifacts or create the tag manually.
+Download every exact tarball from the successful main CI release-candidate artifact and verify it. Publish the tarballs once, in dependency order, with 2FA, the correct dist-tag, public access, and scripts disabled. Bind every package to `publish.yml` and environment `npm`. Then dispatch `publish.yml` for the same version. It derives bootstrap state only when registry bytes match and each version is still that package's sole version. It records the bootstrap packages in the GitHub release. Never rebuild the artifacts or provide a package list or bootstrap switch.
 
 ## Normal release
 
-Run `pnpm release:prepare -- --version <version>` to update all package versions and `CHANGELOG.md` in one pull request. Merge only after `pnpm release:verify` and CI pass. Dispatch `publish.yml` from current `main` with the exact fixed version. The protected workflow finds the retained package set from the exact successful `main` CI run, publishes it, and creates one GitHub release.
+Run `pnpm release:prepare -- --version <version>` to update all package versions and `CHANGELOG.md` in one pull request. Merge only after `pnpm release:verify` and CI pass. Dispatch `publish.yml` from current `main` with the reviewed fixed version. The workflow derives every other value from the retained package set, requests npm approval only for absent packages, and reconciles one GitHub release.
 
 ## Rollback
 
