@@ -211,6 +211,13 @@ assert.equal(
   "A validated manifest tarball beneath the downloaded artifact path must remain bound to retained bytes.",
 );
 
+const sourceShaOutput = validWorkflow.replaceAll("setOutput('sha'", "setOutput('source-sha'");
+assert.equal(
+  check(workflowChecks(sourceShaOutput), "release-workflow-trigger").status,
+  "PROVEN",
+  "A semantically explicit source-sha output must remain valid.",
+);
+
 const provenanceVerifiedDescendant = validWorkflow
   .replace("  github-release:\n    needs: publish\n", `  verify-publication:
     needs: publish

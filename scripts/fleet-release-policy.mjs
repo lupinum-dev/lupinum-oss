@@ -77,7 +77,7 @@ function trustedCiTrigger(workflow, verifier) {
     && /workflow_run\.event\s*==\s*["']push["']/u.test(guard)
     && /workflow_run\.head_branch\s*==\s*["']main["']/u.test(guard);
   const runOutputs = scripts.match(/setOutput\(["'](?:run-id|run_id)["']/gu) ?? [];
-  const shaOutputs = scripts.match(/setOutput\(["']sha["']/gu) ?? [];
+  const shaOutputs = scripts.match(/setOutput\(["'](?:source-)?sha["']/gu) ?? [];
   const dispatchBranch = /context\.eventName\s*===?\s*["']workflow_dispatch["']/u.test(scripts)
     || (/context\.eventName\s*===?\s*["']workflow_run["']/u.test(scripts) && /currentMain\.object\.sha/u.test(scripts));
   const dispatchDiscovery = dispatchBranch
@@ -93,7 +93,7 @@ function trustedCiTrigger(workflow, verifier) {
     && (/(?:expired\s*===?\s*false|!\s*artifact\.expired)/u.test(scripts))
     && /(?:candidates|incomplete|selected)\.length\s*(?:!==?|>)\s*1/u.test(scripts)
     && /setOutput\(["'](?:run-id|run_id)["']/u.test(scripts)
-    && /setOutput\(["']sha["']/u.test(scripts)
+    && /setOutput\(["'](?:source-)?sha["']/u.test(scripts)
     && /workflow_run\??\.(?:id|head_sha)/u.test(scripts)
     && runOutputs.length >= 1
     && shaOutputs.length >= 1;
