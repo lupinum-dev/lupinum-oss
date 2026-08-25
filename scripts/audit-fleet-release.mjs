@@ -307,11 +307,25 @@ export function changelogForPackage(changelogs, pkg, version, profile) {
   return changelogs.find((entry) => headingContainsVersion(entry.source, pkg, version, profile));
 }
 
-async function assetIntegrity(asset) {
+const assetIntegrities = new Map();
+
+export async function assetIntegrity(asset, fetchAsset = fetch) {
   if (!asset?.url) return undefined;
-  const response = await fetch(asset.url, { redirect: "follow" });
-  if (!response.ok) return undefined;
-  return `sha512-${createHash("sha512").update(Buffer.from(await response.arrayBuffer())).digest("base64")}`;
+  if (assetIntegrities.has(asset.url)) return assetIntegrities.get(asset.url);
+  const integrity = (async () => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetchAsset(asset.url, { redirect: "follow" });
+        if (!response.ok) return undefined;
+        return `sha512-${createHash("sha512").update(Buffer.from(await response.arrayBuffer())).digest("base64")}`;
+      } catch {
+        if (attempt === 1) return undefined;
+      }
+    }
+    return undefined;
+  })();
+  assetIntegrities.set(asset.url, integrity);
+  return integrity;
 }
 
 async function releaseState(state, pkg, versions, profile, registry) {
