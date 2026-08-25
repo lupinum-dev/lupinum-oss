@@ -22,10 +22,11 @@ Run `pnpm fleet:release-audit` for release conformance. It derives package and
 workflow inventories from each repository, reads GitHub and npm without
 mutation, and separates failed, unverified, and human-only evidence.
 
-For a Lazy Maintainer release, review the generated version pull request. After
-merge, wait for the release card and approve the protected `npm` environment.
-Do not type release coordinates or rebuild a retained candidate. Use the
-input-free reconcile operation after a workflow correction.
+For a Lazy Maintainer release, review the version pull request. After merge,
+start the Core workflow with the reviewed version when required, review its
+summary, and approve the protected `npm` environment. Automatic Reconciliation
+starts without input. Both paths derive every other release value and reuse the
+retained candidate.
 
 ## Dependency updates
 
