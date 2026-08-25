@@ -66,6 +66,10 @@ function releaseCoordinateInputs(workflow) {
     /(?:^|[-_])(?:artifact|channel|dist[-_]?tag|package|run[-_]?id|source[-_]?sha|tag|target|version)(?:$|[-_])/iu.test(name));
 }
 
+function dispatchInputs(workflow) {
+  return Object.keys(workflow.on?.workflow_dispatch?.inputs ?? {});
+}
+
 function trustedCiTrigger(workflow, verifier) {
   const trigger = workflow.on?.workflow_run;
   const workflows = Array.isArray(trigger?.workflows) ? trigger.workflows : [trigger?.workflows].filter(Boolean);
@@ -102,6 +106,31 @@ function trustedCiTrigger(workflow, verifier) {
     && (branches.length === 0 || branches.includes("main"))
     && eventGuard
     && dispatchDiscovery;
+}
+
+function manualVersionCiTrigger(workflow, verifier) {
+  const dispatch = workflow.on?.workflow_dispatch;
+  const inputs = dispatch?.inputs ?? {};
+  const names = Object.keys(inputs);
+  const version = inputs.version;
+  if (names.length !== 1 || names[0] !== "version" || version?.required !== true || version?.type !== "string") return false;
+
+  const scripts = (verifier?.steps ?? []).map((step) => `${JSON.stringify(step.env ?? {})}\n${step.with?.script ?? ""}\n${step.run ?? ""}`).join("\n");
+  const runBoundDownload = actionSteps(verifier, "actions/download-artifact").some((step) =>
+    typeof step.with?.["run-id"] === "string"
+    && /steps\.[^.]+\.outputs\.(?:run-id|run_id)/u.test(step.with["run-id"]));
+  const exactMain = /(?:GITHUB_REF|github\.ref)/u.test(scripts)
+    && /refs\/heads\/main/u.test(scripts)
+    && /actions\/workflows\/ci\.ya?ml\/runs\?[^\n"']*head_sha=\$GITHUB_SHA/iu.test(scripts)
+    && /event=push/u.test(scripts)
+    && /status=completed/u.test(scripts)
+    && /\.conclusion\s*==\s*["']success["']/u.test(scripts)
+    && /\.head_branch\s*==\s*["']main["']/u.test(scripts);
+  const versionValidated = /RELEASE_VERSION/u.test(scripts)
+    && /Invalid release version/u.test(scripts);
+  const runOutput = /(?:run-id|run_id)=%s/u.test(scripts)
+    && /GITHUB_OUTPUT/u.test(scripts);
+  return exactMain && versionValidated && runOutput && runBoundDownload;
 }
 
 function mutatesRetainedTarball(steps, path) {
@@ -385,12 +414,19 @@ export function evaluateReleaseWorkflows(workflows, profile) {
   if (candidate.workflow.concurrency?.["cancel-in-progress"] !== false) commonFailures.push(`${candidate.path} can cancel an active publication.`);
 
   const dispatchDefined = Object.hasOwn(candidate.workflow.on ?? {}, "workflow_dispatch");
-  const inputs = releaseCoordinateInputs(candidate.workflow);
+  const inputs = dispatchInputs(candidate.workflow);
+  const coordinates = releaseCoordinateInputs(candidate.workflow);
   const triggerFailures = [];
   const verifierNames = protectedNames.length === 1 ? [...ancestors(jobs, protectedNames[0])] : [];
   const verifier = verifierNames.map((name) => jobs[name]).find((job) => actionSteps(job, "actions/upload-artifact").length > 0);
-  if (!trustedCiTrigger(candidate.workflow, verifier)) triggerFailures.push(`${candidate.path} does not bind successful push CI and input-free candidate discovery to its verifier.`);
-  if (!dispatchDefined || inputs.length) triggerFailures.push(`${candidate.path} reconcile dispatch must be input-free; found ${inputs.join(", ") || "no dispatch"}.`);
+  const automaticTrigger = trustedCiTrigger(candidate.workflow, verifier) && inputs.length === 0;
+  const manualTrigger = manualVersionCiTrigger(candidate.workflow, verifier);
+  if (!dispatchDefined || (!automaticTrigger && !manualTrigger)) {
+    triggerFailures.push(`${candidate.path} must use input-free automatic discovery or a version-only dispatch bound to successful current-main CI; found ${inputs.join(", ") || "no valid dispatch"}.`);
+  }
+  if (coordinates.some((name) => name !== "version") || (inputs.length > 0 && !manualTrigger)) {
+    triggerFailures.push(`${candidate.path} accepts unsafe release inputs: ${inputs.join(", ")}.`);
+  }
 
   const boundaryFailures = [...commonFailures];
   if (protectedNames.length !== 1) boundaryFailures.push(`${candidate.path} must have exactly one npm environment job; found ${protectedNames.length}.`);
@@ -406,7 +442,13 @@ export function evaluateReleaseWorkflows(workflows, profile) {
   const handoffFailures = protectedNames.length === 1 ? checkArtifactHandoff(candidate.path, candidate.workflow, protectedNames[0]) : [];
   const releaseFailures = protectedNames.length === 1 ? checkReleaseReconciliation(candidate.path, candidate.workflow, protectedNames[0]) : [];
   return [
-    result(triggerFailures.length ? "FAILED" : "PROVEN", "release-workflow-trigger", triggerFailures.join(" ") || `${candidate.path} binds successful push CI and input-free retained-candidate discovery without typed release coordinates`),
+    result(
+      triggerFailures.length ? "FAILED" : "PROVEN",
+      "release-workflow-trigger",
+      triggerFailures.join(" ") || (automaticTrigger
+        ? `${candidate.path} binds successful push CI and input-free retained-candidate discovery`
+        : `${candidate.path} accepts only a version and derives successful current-main CI plus the retained candidate`),
+    ),
     result(boundaryFailures.length ? "FAILED" : "PROVEN", "release-publish-boundary", boundaryFailures.join(" ") || `${candidate.path} keeps publication inert and least-privileged`),
     result(handoffFailures.length ? "FAILED" : "PROVEN", "release-artifact-handoff", handoffFailures.join(" ") || `${candidate.path} binds protected publication to an unprivileged retained artifact`),
     result(releaseFailures.length ? "FAILED" : "PROVEN", "release-history-reconciliation", releaseFailures.join(" ") || `${candidate.path} creates or repairs public history from the same artifact`),
@@ -542,7 +584,8 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
     const historicalSource = typeof release?.sourceCommit === "string"
       && typeof release?.currentMainSha === "string"
       && release.sourceCommit !== release.currentMainSha;
-    const historyIncomplete = !release?.tag || !release?.release || !release?.assetName;
+    const releaseAssets = release?.assets ?? (release?.assetName ? [{ name: release.assetName, integrity: release.assetIntegrity }] : []);
+    const historyIncomplete = !release?.tag || !release?.release || releaseAssets.length === 0;
     if (historyIncomplete) {
       checks.push(result(
         retained?.present === true ? "PROVEN" : "UNVERIFIED",
@@ -586,20 +629,20 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
       ));
     }
 
-    const expectedTarball = `${pkg.name.replace(/^@/u, "").replace("/", "-")}-${version}.tgz`;
     const expectedIntegrity = registry.integrity[version];
-    const releaseHasAsset = release?.assetName === expectedTarball;
-    const releaseBytesMatch = releaseHasAsset && typeof release.assetIntegrity === "string" && release.assetIntegrity === expectedIntegrity;
-    if (releaseBytesMatch) {
+    const matchingAsset = releaseAssets.find((asset) => asset.integrity === expectedIntegrity);
+    const unreadableAssets = releaseAssets.filter((asset) => asset.integrity == null);
+    const readableAssets = releaseAssets.filter((asset) => typeof asset.integrity === "string");
+    if (matchingAsset) {
       checks.push(result(
         provenance?.verified === true ? "PROVEN" : "UNVERIFIED",
         `npm:${pkg.name}@${version}:github-release`,
-        `${release.release} contains ${expectedTarball} with registry integrity ${expectedIntegrity}`,
+        `${release.release} contains ${matchingAsset.name} with registry integrity ${expectedIntegrity}`,
       ));
-    } else if (releaseHasAsset && release.assetIntegrity == null) {
-      checks.push(result("UNVERIFIED", `npm:${pkg.name}@${version}:github-release`, `${release.release} contains ${expectedTarball}, but its bytes could not be read`));
-    } else if (releaseHasAsset) {
-      checks.push(result("FAILED", `npm:${pkg.name}@${version}:github-release`, `${release.release} contains ${expectedTarball}, but its bytes differ from npm`));
+    } else if (unreadableAssets.length > 0) {
+      checks.push(result("UNVERIFIED", `npm:${pkg.name}@${version}:github-release`, `${release.release} has unreadable package assets: ${unreadableAssets.map((asset) => asset.name).join(", ")}`));
+    } else if (readableAssets.length > 0) {
+      checks.push(result("FAILED", `npm:${pkg.name}@${version}:github-release`, `${release.release} package assets differ from npm: ${readableAssets.map((asset) => asset.name).join(", ")}`));
     } else if (recoveryEvidenceProven && historicalSource && !release?.tag && !release?.release) {
       checks.push(result(
         "HUMAN-ONLY",
@@ -611,14 +654,14 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
       checks.push(result(
         "FAILED",
         `npm:${pkg.name}@${version}:github-release`,
-        release?.release ? `${release.release} is missing ${expectedTarball}` : `missing; expected ${expected.join(" or ")}`,
+        release?.release ? `${release.release} has no package asset matching npm bytes` : `missing; expected ${expected.join(" or ")}`,
         { classification: "reconcile" },
       ));
     } else {
       checks.push(result(
         provenance == null || retained?.present !== true ? "UNVERIFIED" : "FAILED",
         `npm:${pkg.name}@${version}:github-release`,
-        release?.release ? `${release.release} is missing ${expectedTarball}` : `missing; source, retained candidate, tag, or changelog evidence is incomplete`,
+        release?.release ? `${release.release} has no readable package asset` : `missing; source, retained candidate, tag, or changelog evidence is incomplete`,
       ));
     }
 
