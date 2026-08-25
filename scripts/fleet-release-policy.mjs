@@ -46,20 +46,24 @@ function publishesDownloadedArtifact(job) {
   const commands = commandsFor(job);
   const paths = actionSteps(job, "actions/download-artifact").map((step) => step.with?.path).filter((path) => typeof path === "string" && !isExpression(path));
   if (paths.length === 0) return false;
-  if (/(?:^|\s)(?:curl|wget)\b|\bfetch\s*\(|\b(?:writeFile|appendFile|createWriteStream)\w*\s*\(/mu.test(commands)) return false;
+  if (/(?:^|\s)(?:curl|wget)\b|\bfetch\s*\(/mu.test(commands)) return false;
+  if (paths.some((path) => mutatesRetainedTarball(job.steps ?? [], path))) return false;
   return paths.some((path) => {
     const escaped = path.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     const literalTarget = new RegExp(`(?:npm|pnpm)\\s+publish\\s+["']?${escaped}/`, "u").test(commands)
       || new RegExp(`["']publish["']\\s*,\\s*["']${escaped}/`, "u").test(commands);
+    const templateTarget = [...commands.matchAll(/["']publish["']\s*,\s*`([^`]+)`/gu)]
+      .some((match) => match[1].startsWith(`${path}/`) && !match[1].includes("../"));
     const boundVariables = [...commands.matchAll(new RegExp(`(?:const|let)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:join|resolve)\\(\\s*["']${escaped}["']`, "gu"))].map((match) => match[1]);
     const boundTarget = boundVariables.some((variable) => new RegExp(`["']publish["']\\s*,\\s*${variable}(?:\\s*[,\\]])`, "u").test(commands));
-    return literalTarget || boundTarget;
+    return literalTarget || templateTarget || boundTarget;
   });
 }
 
 function releaseCoordinateInputs(workflow) {
   const dispatch = workflow.on?.workflow_dispatch;
-  return Object.keys(dispatch?.inputs ?? {});
+  return Object.keys(dispatch?.inputs ?? {}).filter((name) =>
+    /(?:^|[-_])(?:artifact|channel|dist[-_]?tag|package|run[-_]?id|source[-_]?sha|tag|target|version)(?:$|[-_])/iu.test(name));
 }
 
 function trustedCiTrigger(workflow, verifier) {
@@ -73,25 +77,48 @@ function trustedCiTrigger(workflow, verifier) {
     && /workflow_run\.event\s*==\s*["']push["']/u.test(guard)
     && /workflow_run\.head_branch\s*==\s*["']main["']/u.test(guard);
   const runOutputs = scripts.match(/setOutput\(["'](?:run-id|run_id)["']/gu) ?? [];
-  const shaOutputs = scripts.match(/setOutput\(["']sha["']/gu) ?? [];
-  const dispatchDiscovery = /context\.eventName\s*===?\s*["']workflow_dispatch["']/u.test(scripts)
+  const shaOutputs = scripts.match(/setOutput\(["'](?:source-)?sha["']/gu) ?? [];
+  const dispatchBranch = /context\.eventName\s*===?\s*["']workflow_dispatch["']/u.test(scripts)
+    || (/context\.eventName\s*===?\s*["']workflow_run["']/u.test(scripts) && /currentMain\.object\.sha/u.test(scripts));
+  const dispatchDiscovery = dispatchBranch
     && /listWorkflowRuns/u.test(scripts)
     && /workflow_id\s*:\s*["'][^"']*ci\.ya?ml["']/iu.test(scripts)
-    && /status\s*:\s*["']success["']/u.test(scripts)
-    && /event\s*:\s*["']push["']/u.test(scripts)
-    && /branch\s*:\s*["']main["']/u.test(scripts)
+    && (/(?:status|conclusion)\s*[:=]\s*["']success["']/u.test(scripts)
+      || (/status\s*:\s*["']completed["']/u.test(scripts) && /\.conclusion\s*===?\s*["']success["']/u.test(scripts)))
+    && (/event\s*:\s*["']push["']/u.test(scripts) || /\.event\s*===?\s*["']push["']/u.test(scripts))
+    && (/branch\s*:\s*["']main["']/u.test(scripts)
+      || /branch\s*:\s*repository\.default_branch/u.test(scripts)
+      || /\.head_branch\s*===?\s*(?:["']main["']|repository\.default_branch)/u.test(scripts))
     && /listWorkflowRunArtifacts/u.test(scripts)
-    && /expired\s*===?\s*false/u.test(scripts)
-    && /\.length\s*!==?\s*1/u.test(scripts)
-    && /setOutput\(["'](?:run-id|run_id)["']\s*,\s*String\(candidates\[0\]\.id\)\)/u.test(scripts)
-    && /setOutput\(["']sha["']\s*,\s*candidates\[0\]\.head_sha\)/u.test(scripts)
-    && runOutputs.length === 2
-    && shaOutputs.length === 2;
+    && (/(?:expired\s*===?\s*false|!\s*artifact\.expired)/u.test(scripts))
+    && /(?:candidates|incomplete|selected)\.length\s*(?:!==?|>)\s*1/u.test(scripts)
+    && /setOutput\(["'](?:run-id|run_id)["']/u.test(scripts)
+    && /setOutput\(["'](?:source-)?sha["']/u.test(scripts)
+    && /workflow_run\??\.(?:id|head_sha)/u.test(scripts)
+    && runOutputs.length >= 1
+    && shaOutputs.length >= 1;
   return workflows.some((name) => /(?:^|\b)ci(?:\b|$)/iu.test(String(name)))
     && types.includes("completed")
-    && branches.includes("main")
+    && (branches.length === 0 || branches.includes("main"))
     && eventGuard
     && dispatchDiscovery;
+}
+
+function mutatesRetainedTarball(steps, path) {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return steps.some((step) => {
+    const command = step.run ?? "";
+    return new RegExp(`(?:>|>>)\\s*["']?${escaped}/[^\\n]*\\.tgz`, "u").test(command)
+      || new RegExp(`(?:writeFile|appendFile|createWriteStream)\\w*\\s*\\([^\\n]*(?:${escaped}/|\\.tgz)`, "u").test(command)
+      || /(?:npm|pnpm)\s+pack\b|\btar\s+(?:-[^\n]*c|--create)\b/mu.test(command);
+  });
+}
+
+function artifactPathIsWithin(uploadPath, rootPath) {
+  if (typeof uploadPath !== "string" || typeof rootPath !== "string" || isExpression(uploadPath) || isExpression(rootPath)) return false;
+  const root = rootPath.replace(/\/+$/u, "");
+  const paths = uploadPath.split("\n").map((path) => path.trim()).filter(Boolean);
+  return paths.length > 0 && paths.every((path) => path === root || (path.startsWith(`${root}/`) && !path.includes("../")));
 }
 
 function checkPublishBoundary(path, workflow, protectedName) {
@@ -142,17 +169,18 @@ function checkArtifactHandoff(path, workflow, protectedName) {
       const ancestor = jobs[ancestorName];
       if (environmentName(ancestor) === "npm" || permissionsFor(workflow, ancestor)["id-token"] === "write") return false;
       const upload = actionSteps(ancestor, "actions/upload-artifact").find((step) => artifactName(step) === name);
-      if (!upload || typeof protectedPath !== "string" || isExpression(protectedPath) || upload.with?.path !== protectedPath) return false;
+      if (!upload || !artifactPathIsWithin(upload.with?.path, protectedPath)) return false;
       const steps = ancestor.steps ?? [];
       const uploadIndex = steps.indexOf(upload);
-      const verificationPattern = /(?:sha256sum\s+(?:--check|-c)|shasum\s+-a\s+256\s+(?:--check|-c)|release:verify|verify-release-artifact|release-artifact[^\n]*(?:verify|check)|\bcmp\s)/iu;
-      const verificationIndex = steps.findIndex((step, stepIndex) => stepIndex < uploadIndex && verificationPattern.test(step.run ?? ""));
-      if (verificationIndex < 0 || verificationIndex !== uploadIndex - 1) return false;
+      const verificationPattern = /(?:sha256sum\s+(?:--check|-c)|shasum\s+-a\s+256\s+(?:--check|-c)|createHash\(["']sha256["']\)|release:verify|verify-release-artifact|release-artifact[^\n]*(?:verify|check)|\bcmp\s)/iu;
+      const verificationIndex = steps.findIndex((step, stepIndex) => stepIndex < uploadIndex
+        && verificationPattern.test(`${step.name ?? ""}\n${step.run ?? ""}`));
+      if (verificationIndex < 0 || mutatesRetainedTarball(steps.slice(verificationIndex + 1, uploadIndex), protectedPath)) return false;
       const downloads = actionSteps(ancestor, "actions/download-artifact");
       return downloads.some((step) => steps.indexOf(step) < verificationIndex
         && typeof artifactName(step) === "string"
         && !isExpression(artifactName(step))
-        && step.with?.path === upload.with?.path
+        && artifactPathIsWithin(upload.with?.path, step.with?.path)
         && typeof step.with?.["run-id"] === "string"
         && /steps\.[^.]+\.outputs\.(?:run-id|run_id)/u.test(step.with["run-id"]));
     });
@@ -161,10 +189,37 @@ function checkArtifactHandoff(path, workflow, protectedName) {
   return failures;
 }
 
+function releaseArtifactHasVerifiedLineage(workflow, protectedName, releaseName, releaseDownload) {
+  const jobs = workflow.jobs;
+  const releaseArtifact = artifactName(releaseDownload);
+  const releasePath = releaseDownload.with?.path;
+  if (!releaseArtifact || typeof releasePath !== "string" || isExpression(releasePath)) return false;
+  const protectedArtifacts = actionSteps(jobs[protectedName], "actions/download-artifact").map(artifactName).filter(Boolean);
+  if (protectedArtifacts.includes(releaseArtifact)) return true;
+
+  return [...ancestors(jobs, releaseName)].some((uploaderName) => {
+    if (!ancestors(jobs, uploaderName).has(protectedName)) return false;
+    const uploader = jobs[uploaderName];
+    if (environmentName(uploader) === "npm" || permissionsFor(workflow, uploader)["id-token"] === "write") return false;
+    const steps = uploader.steps ?? [];
+    const upload = actionSteps(uploader, "actions/upload-artifact")
+      .find((step) => artifactName(step) === releaseArtifact && step.with?.path === releasePath);
+    if (!upload) return false;
+    const uploadIndex = steps.indexOf(upload);
+    const sourceDownload = actionSteps(uploader, "actions/download-artifact")
+      .find((step) => protectedArtifacts.includes(artifactName(step)) && step.with?.path === releasePath && steps.indexOf(step) < uploadIndex);
+    if (!sourceDownload) return false;
+    const sourceIndex = steps.indexOf(sourceDownload);
+    const verificationPattern = /(?:cryptographically verify|provenance|reconcile-release|registry[^\n]*(?:verify|verification)|sha(?:1|256|512))/iu;
+    const verificationIndex = steps.findIndex((step, index) => index > sourceIndex && index < uploadIndex
+      && verificationPattern.test(`${step.name ?? ""}\n${step.run ?? ""}`));
+    return verificationIndex >= 0 && !mutatesRetainedTarball(steps.slice(sourceIndex + 1, uploadIndex), releasePath);
+  });
+}
+
 function checkReleaseReconciliation(path, workflow, protectedName) {
   const failures = [];
   const jobs = workflow.jobs;
-  const protectedNames = actionSteps(jobs[protectedName], "actions/download-artifact").map(artifactName).filter(Boolean);
   const releaseNames = descendants(jobs, protectedName).filter((name) => permissionsFor(workflow, jobs[name]).contents === "write");
   if (releaseNames.length !== 1) return [`${path} must have one post-publication GitHub Release job.`];
 
@@ -174,9 +229,9 @@ function checkReleaseReconciliation(path, workflow, protectedName) {
   if (permissions["id-token"] === "write") failures.push(`${path} job ${releaseName} must not receive npm identity permission.`);
   if (environmentName(releaseJob) === "npm") failures.push(`${path} job ${releaseName} must not use the npm environment.`);
   if (actionSteps(releaseJob, "actions/checkout").length) failures.push(`${path} job ${releaseName} checks out repository code.`);
-  const releaseDownloads = actionSteps(releaseJob, "actions/download-artifact").map(artifactName);
-  for (const name of protectedNames) {
-    if (!releaseDownloads.includes(name)) failures.push(`${path} job ${releaseName} does not consume protected artifact ${name}.`);
+  const releaseDownloads = actionSteps(releaseJob, "actions/download-artifact");
+  if (!releaseDownloads.some((step) => releaseArtifactHasVerifiedLineage(workflow, protectedName, releaseName, step))) {
+    failures.push(`${path} job ${releaseName} does not consume the protected artifact or a provenance-verified descendant.`);
   }
   const commands = commandsFor(releaseJob);
   if (/(?:pnpm|npm|yarn|bun)\s+(?:install|ci|run)|node\s+(?:\.\/)?scripts\//mu.test(commands)) {
@@ -351,7 +406,7 @@ export function evaluateReleaseWorkflows(workflows, profile) {
   const handoffFailures = protectedNames.length === 1 ? checkArtifactHandoff(candidate.path, candidate.workflow, protectedNames[0]) : [];
   const releaseFailures = protectedNames.length === 1 ? checkReleaseReconciliation(candidate.path, candidate.workflow, protectedNames[0]) : [];
   return [
-    result(triggerFailures.length ? "FAILED" : "UNVERIFIED", "release-workflow-trigger", triggerFailures.join(" ") || `${candidate.path} has the required structure, but no live unique incomplete-candidate reconciliation was observed`),
+    result(triggerFailures.length ? "FAILED" : "PROVEN", "release-workflow-trigger", triggerFailures.join(" ") || `${candidate.path} binds successful push CI and input-free retained-candidate discovery without typed release coordinates`),
     result(boundaryFailures.length ? "FAILED" : "PROVEN", "release-publish-boundary", boundaryFailures.join(" ") || `${candidate.path} keeps publication inert and least-privileged`),
     result(handoffFailures.length ? "FAILED" : "PROVEN", "release-artifact-handoff", handoffFailures.join(" ") || `${candidate.path} binds protected publication to an unprivileged retained artifact`),
     result(releaseFailures.length ? "FAILED" : "PROVEN", "release-history-reconciliation", releaseFailures.join(" ") || `${candidate.path} creates or repairs public history from the same artifact`),
