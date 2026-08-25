@@ -102,10 +102,10 @@ library branch previews, or apply library settings to customer applications.
 7. Follow the handbook's explicit first-package bootstrap ceremony only when the package does not yet exist and the user authorizes that irreversible publication.
 
 For a normal or recovery release, derive the state from current evidence and
-report the handbook's Lazy Maintainer release card. Give exactly one safe next
-action. Do not ask the maintainer to provide a version, package list, tag,
-dist-tag, or artifact run ID when the retained manifest and trusted CI event can
-provide it.
+report one pre-approval summary with exactly one safe next action. A Core
+workflow may request only the reviewed version. Automatic Reconciliation is
+input-free. Never ask for a package list, source commit, tag, dist-tag, channel,
+bootstrap override, or artifact run ID.
 
 Use `next` for prereleases and `latest` for stable releases unless the repository's current written policy deliberately says otherwise. A hotfix to Lupinum-owned code does not require waiting 24 hours unless it introduces a fresh external dependency.
 
