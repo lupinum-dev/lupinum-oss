@@ -186,8 +186,58 @@ for (const fixture of [
 }
 
 const validWorkflowChecks = workflowChecks(validWorkflow);
-assert.equal(check(validWorkflowChecks, "release-workflow-trigger").status, "UNVERIFIED", "Static trigger structure must not imply a live reconciliation succeeded.");
-assert.ok(validWorkflowChecks.filter((item) => item.id !== "release-workflow-trigger").every((item) => item.status === "PROVEN"), "Valid structural workflow failed.");
+assert.equal(check(validWorkflowChecks, "release-workflow-trigger").status, "PROVEN", "The structural check proves trigger binding without claiming a live release state.");
+assert.ok(validWorkflowChecks.every((item) => item.status === "PROVEN"), "Valid structural workflow failed.");
+
+const guardedMainTrigger = validWorkflow
+  .replace("    branches: [main]\n", "")
+  .replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      allow_bootstrap: { required: false, default: false, type: boolean }\n")
+  .replace("workflow_id: 'ci.yml', status: 'success', event: 'push', branch: 'main'", "workflow_id: 'ci.yml', status: 'completed', event: 'push', branch: repository.default_branch")
+  .replace("run.head_branch === 'main'", "run.head_branch === repository.default_branch")
+  .replace("artifact.expired === false", "!artifact.expired");
+assert.equal(
+  check(workflowChecks(guardedMainTrigger), "release-workflow-trigger").status,
+  "PROVEN",
+  "A verifier-level main guard, completed-run filtering, and a non-coordinate bootstrap switch must remain valid.",
+);
+
+const templatedTarballPublish = validWorkflow.replace(
+  "npm publish candidate/package.tgz --provenance --ignore-scripts",
+  "node --input-type=module -e \"const manifest={tarball:'package.tgz'}; const run=args=>args; run(['publish', `candidate/${manifest.tarball}`, '--provenance', '--ignore-scripts'])\"",
+);
+assert.equal(
+  check(workflowChecks(templatedTarballPublish), "release-publish-boundary").status,
+  "PROVEN",
+  "A validated manifest tarball beneath the downloaded artifact path must remain bound to retained bytes.",
+);
+
+const provenanceVerifiedDescendant = validWorkflow
+  .replace("  github-release:\n    needs: publish\n", `  verify-publication:
+    needs: publish
+    permissions: { actions: read, contents: read }
+    steps:
+      - uses: actions/download-artifact@${action}
+        with: { name: verified-release, path: candidate }
+      - run: node scripts/reconcile-release.mjs candidate --verify-provenance
+      - uses: actions/upload-artifact@${action}
+        with: { name: publication-verified-release, path: candidate, retention-days: 14 }
+  github-release:
+    needs: verify-publication
+`)
+  .replace(
+    "with: { name: verified-release, path: candidate }\n      - run: |\n          SOURCE_SHA=",
+    "with: { name: publication-verified-release, path: candidate }\n      - run: |\n          SOURCE_SHA=",
+  );
+assert.equal(
+  check(workflowChecks(provenanceVerifiedDescendant), "release-history-reconciliation").status,
+  "PROVEN",
+  "A GitHub Release job may consume a stricter provenance-verified descendant of the protected publication artifact.",
+);
+assert.equal(
+  check(workflowChecks(provenanceVerifiedDescendant.replace("node scripts/reconcile-release.mjs candidate --verify-provenance", "echo unchecked")), "release-history-reconciliation").status,
+  "FAILED",
+  "A renamed descendant artifact without intervening verification must fail.",
+);
 const workflowMutations = [
   {
     name: "typed release coordinates",
