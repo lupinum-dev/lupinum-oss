@@ -4,6 +4,8 @@ All notable changes to the Lupinum OSS handbook, starters, and skill are recorde
 
 ## Unreleased
 
+## 0.1.0 - 2026-08-25
+
 ### Added
 
 - Lazy Maintainer release states, release-card evidence, automatic exact-CI
