@@ -46,7 +46,9 @@ function publishesDownloadedArtifact(job) {
   const commands = commandsFor(job);
   const paths = actionSteps(job, "actions/download-artifact").map((step) => step.with?.path).filter((path) => typeof path === "string" && !isExpression(path));
   if (paths.length === 0) return false;
-  if (/(?:^|\s)(?:curl|wget)\b|\bfetch\s*\(/mu.test(commands)) return false;
+  // Publication may read npm's attestation API. Reject commands that can replace
+  // retained bytes; a read-only `fetch()` is not itself an artifact mutation.
+  if (/(?:^|\s)(?:curl|wget)\b/mu.test(commands)) return false;
   if (paths.some((path) => mutatesRetainedTarball(job.steps ?? [], path))) return false;
   return paths.some((path) => {
     const escaped = path.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
@@ -55,7 +57,11 @@ function publishesDownloadedArtifact(job) {
     const templateTarget = [...commands.matchAll(/["']publish["']\s*,\s*`([^`]+)`/gu)]
       .some((match) => match[1].startsWith(`${path}/`) && !match[1].includes("../"));
     const boundVariables = [...commands.matchAll(new RegExp(`(?:const|let)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:join|resolve)\\(\\s*["']${escaped}["']`, "gu"))].map((match) => match[1]);
-    const boundTarget = boundVariables.some((variable) => new RegExp(`["']publish["']\\s*,\\s*${variable}(?:\\s*[,\\]])`, "u").test(commands));
+    const templateVariables = [...commands.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*`([^`]+)`/gu)]
+      .filter((match) => match[2].startsWith(`${path}/`) && !match[2].includes("../"))
+      .map((match) => match[1]);
+    const boundTarget = [...boundVariables, ...templateVariables]
+      .some((variable) => new RegExp(`["']publish["']\\s*,\\s*${variable}(?:\\s*[,\\]])`, "u").test(commands));
     return literalTarget || templateTarget || boundTarget;
   });
 }
@@ -271,7 +277,7 @@ function checkReleaseReconciliation(path, workflow, protectedName) {
   if (!/gh\s+api[\s\S]*--method\s+POST[\s\S]*git\/refs/u.test(commands)) {
     failures.push(`${path} job ${releaseName} cannot create an exact-source lightweight tag before the GitHub Release.`);
   }
-  if (!/git\/ref\/tags/u.test(commands) || !/SOURCE_SHA/u.test(commands)) {
+  if (!/git\/(?:ref|matching-refs)\/tags/u.test(commands) || !/(?:SOURCE_SHA|MANIFEST_SOURCE|manifest_source)/u.test(commands)) {
     failures.push(`${path} job ${releaseName} does not read the release tag back and bind it to the certified source SHA.`);
   }
   if (!/HUMAN-ONLY/u.test(commands) || !/(?:HTTP\s+403|Resource not accessible by integration)/u.test(commands)) {

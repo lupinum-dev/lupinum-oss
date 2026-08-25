@@ -247,6 +247,42 @@ assert.equal(
   "A validated manifest tarball beneath the downloaded artifact path must remain bound to retained bytes.",
 );
 
+const attestationFetch = templatedTarballPublish.replace(
+  "const manifest={tarball:'package.tgz'};",
+  "const manifest={tarball:'package.tgz'}; await fetch('https://registry.npmjs.org/-/npm/v1/attestations/example');",
+);
+assert.equal(
+  check(workflowChecks(attestationFetch), "release-publish-boundary").status,
+  "PROVEN",
+  "Reading registry attestation evidence must not look like replacing the retained tarball.",
+);
+
+const manifestSourceTagReadback = validWorkflow
+  .replaceAll("SOURCE_SHA", "MANIFEST_SOURCE");
+assert.equal(
+  check(workflowChecks(manifestSourceTagReadback), "release-history-reconciliation").status,
+  "PROVEN",
+  "A tag readback may name the certified source after its retained manifest.",
+);
+
+const matchingRefsTagReadback = manifestSourceTagReadback
+  .replaceAll("git/ref/tags", "git/matching-refs/tags");
+assert.equal(
+  check(workflowChecks(matchingRefsTagReadback), "release-history-reconciliation").status,
+  "PROVEN",
+  "An exact matching-refs lookup must remain valid tag readback evidence.",
+);
+
+const boundTemplateVariable = validWorkflow.replace(
+  "npm publish candidate/package.tgz --provenance --ignore-scripts",
+  "node --input-type=module -e \"const tarball=`candidate/${'package.tgz'}`; const run=args=>args; run(['publish', tarball, '--provenance', '--ignore-scripts'])\"",
+);
+assert.equal(
+  check(workflowChecks(boundTemplateVariable), "release-publish-boundary").status,
+  "PROVEN",
+  "A validated variable must remain bound to a template path beneath the retained artifact root.",
+);
+
 const sourceShaOutput = validWorkflow.replaceAll("setOutput('sha'", "setOutput('source-sha'");
 assert.equal(
   check(workflowChecks(sourceShaOutput), "release-workflow-trigger").status,
@@ -376,7 +412,7 @@ const workflowMutations = [
   {
     name: "tag not read back",
     id: "release-history-reconciliation",
-    mutate: (source) => source.replace("git/ref/tags/v1.0.0", "git/matching-refs/tags/v1.0.0"),
+    mutate: (source) => source.replace("git/ref/tags/v1.0.0", "git/refs-no-readback/v1.0.0"),
   },
 ];
 for (const fixture of workflowMutations) {
