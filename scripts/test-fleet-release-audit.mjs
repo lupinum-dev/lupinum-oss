@@ -189,16 +189,52 @@ const validWorkflowChecks = workflowChecks(validWorkflow);
 assert.equal(check(validWorkflowChecks, "release-workflow-trigger").status, "PROVEN", "The structural check proves trigger binding without claiming a live release state.");
 assert.ok(validWorkflowChecks.every((item) => item.status === "PROVEN"), "Valid structural workflow failed.");
 
+const manualWorkflow = validWorkflow
+  .replace(`  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+`, `  workflow_dispatch:
+    inputs:
+      version: { required: true, type: string }
+`)
+  .replace("    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main')\n", "")
+  .replace(/      - id: candidate[\s\S]*?      - uses: actions\/download-artifact@/u, `      - id: candidate
+        env:
+          RELEASE_VERSION: \${{ inputs.version }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          node -e "if (!/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RELEASE_VERSION)) throw new Error('Invalid release version')"
+          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=completed" --jq '.workflow_runs | map(select(.conclusion == "success" and .head_branch == "main")) | first | .id // empty')"
+          test -n "$run_id"
+          printf 'run-id=%s\\n' "$run_id" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@`);
+const manualWorkflowChecks = workflowChecks(manualWorkflow);
+assert.equal(check(manualWorkflowChecks, "release-workflow-trigger").status, "PROVEN", "A version-only dispatch may derive exact current-main CI and its retained artifact.");
+assert.ok(manualWorkflowChecks.every((item) => item.status === "PROVEN"), "Valid manual Core workflow failed.");
+for (const unsafeInput of ["run_id", "source_sha", "tag", "channel", "target", "package", "allow_bootstrap"]) {
+  const unsafeManual = manualWorkflow.replace(
+    "      version: { required: true, type: string }\n",
+    `      version: { required: true, type: string }\n      ${unsafeInput}: { required: false, type: string }\n`,
+  );
+  assert.equal(check(workflowChecks(unsafeManual), "release-workflow-trigger").status, "FAILED", `Manual Core must reject ${unsafeInput}.`);
+}
+assert.equal(
+  check(workflowChecks(manualWorkflow.replace("head_sha=$GITHUB_SHA", "head_sha=$ATTACKER_SHA")), "release-workflow-trigger").status,
+  "FAILED",
+  "Manual Core must bind CI discovery to the dispatch commit.",
+);
+
 const guardedMainTrigger = validWorkflow
   .replace("    branches: [main]\n", "")
-  .replace("  workflow_dispatch:\n", "  workflow_dispatch:\n    inputs:\n      allow_bootstrap: { required: false, default: false, type: boolean }\n")
   .replace("workflow_id: 'ci.yml', status: 'success', event: 'push', branch: 'main'", "workflow_id: 'ci.yml', status: 'completed', event: 'push', branch: repository.default_branch")
   .replace("run.head_branch === 'main'", "run.head_branch === repository.default_branch")
   .replace("artifact.expired === false", "!artifact.expired");
 assert.equal(
   check(workflowChecks(guardedMainTrigger), "release-workflow-trigger").status,
   "PROVEN",
-  "A verifier-level main guard, completed-run filtering, and a non-coordinate bootstrap switch must remain valid.",
+  "A verifier-level main guard and completed-run filtering must remain valid.",
 );
 
 const templatedTarballPublish = validWorkflow.replace(
@@ -511,6 +547,32 @@ assert.equal(
   check(evaluateRegistryPackage(packages[0], registry, unreadableAssetHistory), "npm:@lupinum/one@1.0.0:github-release").status,
   "UNVERIFIED",
   "An unreadable GitHub Release asset must remain unverified.",
+);
+const arbitraryAssetNameHistory = structuredClone(publicHistory);
+arbitraryAssetNameHistory["1.0.0"] = {
+  ...arbitraryAssetNameHistory["1.0.0"],
+  assetName: undefined,
+  assetIntegrity: undefined,
+  assets: [{ name: "lupinum-nuxt-email.tgz", integrity: "sha512-stable" }],
+};
+assert.equal(
+  check(evaluateRegistryPackage(packages[0], registry, arbitraryAssetNameHistory), "npm:@lupinum/one@1.0.0:github-release").status,
+  "PROVEN",
+  "A package asset is identified by npm byte identity, not a cosmetic filename.",
+);
+const mixedAssetHistory = structuredClone(arbitraryAssetNameHistory);
+mixedAssetHistory["1.0.0"].assets.unshift({ name: "notes.tgz", integrity: "sha512-wrong" });
+assert.equal(
+  check(evaluateRegistryPackage(packages[0], registry, mixedAssetHistory), "npm:@lupinum/one@1.0.0:github-release").status,
+  "PROVEN",
+  "An extra asset must not hide the package asset whose bytes match npm.",
+);
+const unreadableFallbackHistory = structuredClone(arbitraryAssetNameHistory);
+unreadableFallbackHistory["1.0.0"].assets = [{ name: "package.tgz", integrity: undefined }];
+assert.equal(
+  check(evaluateRegistryPackage(packages[0], registry, unreadableFallbackHistory), "npm:@lupinum/one@1.0.0:github-release").status,
+  "UNVERIFIED",
+  "An arbitrary package asset with unreadable bytes must remain unverified.",
 );
 
 const missingHistory = structuredClone(publicHistory);

@@ -320,8 +320,9 @@ async function releaseState(state, pkg, versions, profile, registry) {
     const tag = state.tags.find((entry) => candidates.includes(entry.name));
     const release = state.releases.find((entry) => candidates.includes(entry.tag));
     const changelog = changelogForPackage(state.changelogs, pkg, version, profile);
-    const expectedTarball = `${pkg.name.replace(/^@/u, "").replace("/", "-")}-${version}.tgz`;
-    const asset = release?.assets.find((entry) => entry.name === expectedTarball);
+    const assets = await Promise.all((release?.assets ?? [])
+      .filter((entry) => entry.name.endsWith(".tgz"))
+      .map(async (entry) => ({ name: entry.name, integrity: await assetIntegrity(entry) })));
     const sourceCommit = typeof registry.provenance[version] === "object" ? registry.provenance[version]?.sourceCommit : undefined;
     return [version, {
       tag: tag?.name,
@@ -333,8 +334,7 @@ async function releaseState(state, pkg, versions, profile, registry) {
       currentMainSha: state.sha,
       repository: state.metadata.full_name,
       retainedCandidate: retainedCandidateForSource(state, sourceCommit),
-      assetName: asset?.name,
-      assetIntegrity: await assetIntegrity(asset),
+      assets,
     }];
   })));
 }
