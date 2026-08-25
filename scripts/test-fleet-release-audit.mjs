@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   auditExitCode,
   deriveReleaseUnits,
@@ -12,7 +13,7 @@ import {
   expectedTags,
   formatReleaseCard,
 } from "./fleet-release-policy.mjs";
-import { changelogForPackage, evaluateVerifiedProvenanceStatement, headingContainsVersion, releaseCandidateArtifactNames, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
+import { assetIntegrity, changelogForPackage, evaluateVerifiedProvenanceStatement, headingContainsVersion, releaseCandidateArtifactNames, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
 
 const action = "0123456789abcdef0123456789abcdef01234567";
 const packages = [{ name: "@lupinum/one", version: "1.0.0" }, { name: "@lupinum/two", version: "1.0.0" }];
@@ -35,6 +36,33 @@ const provenanceDocument = {
     bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(provenanceStatement)).toString("base64") } },
   }],
 };
+let assetFetchAttempts = 0;
+const assetBytes = Buffer.from("certified release asset");
+const cachedAssetIntegrity = await assetIntegrity(
+  { url: "https://example.invalid/retry-release-asset.tgz" },
+  async () => {
+    assetFetchAttempts += 1;
+    if (assetFetchAttempts === 1) throw new Error("transient network failure");
+    return new Response(assetBytes);
+  },
+);
+assert.equal(assetFetchAttempts, 2, "A transient asset fetch must receive one bounded retry.");
+assert.equal(cachedAssetIntegrity, `sha512-${createHash("sha512").update(assetBytes).digest("base64")}`);
+assert.equal(
+  await assetIntegrity({ url: "https://example.invalid/retry-release-asset.tgz" }, async () => { throw new Error("cached assets must not be fetched again"); }),
+  cachedAssetIntegrity,
+  "The same GitHub Release asset must be read only once per fleet audit.",
+);
+let unreadableAttempts = 0;
+assert.equal(
+  await assetIntegrity({ url: "https://example.invalid/unreadable-release-asset.tgz" }, async () => {
+    unreadableAttempts += 1;
+    throw new Error("persistent network failure");
+  }),
+  undefined,
+  "Persistent asset fetch failures must remain unverified instead of aborting a package audit.",
+);
+assert.equal(unreadableAttempts, 2, "Persistent failures must stop after the bounded retry.");
 assert.deepEqual(
   evaluateVerifiedProvenanceStatement(provenanceStatement, { name: "@lupinum/one", repository: "lupinum-dev/one" }, "1.0.0", provenanceIntegrity, ".github/workflows/publish.yml"),
   {
