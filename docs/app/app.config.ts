@@ -13,6 +13,7 @@ export default {
         { label: { en: "Privacy" }, to: "https://lupinum.com/datenschutz" },
       ],
     },
+    nav: { links: "auto", socialIcons: true },
     social: { github: site.repository, discord: site.discord },
     repository: {
       url: site.repository,
