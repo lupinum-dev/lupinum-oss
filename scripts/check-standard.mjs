@@ -169,6 +169,9 @@ if (!appConfig.includes('analytics: { plausible: { scriptId: "5fyE8fD6AUwglXv86u
 if (!appConfig.includes("feedback: { enabled: true }")) {
   failures.push("The handbook must enable documentation feedback.");
 }
+if (!appConfig.includes('nav: { links: "auto", socialIcons: true }')) {
+  failures.push("The handbook must show its configured GitHub and Discord links in the header.");
+}
 
 async function walk(directory) {
   const paths = [];

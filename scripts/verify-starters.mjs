@@ -301,6 +301,7 @@ else {
     if (readme.includes("<safe>") || !readme.includes("Grüß 日本語 🌱")) failures.push("hostile Markdown input was not encoded safely");
     const appConfig = await readFile(join(hostileOutput, "docs/app/app.config.ts"), "utf8");
     if (!appConfig.includes("name: { en: 'Bob\\'s App' }") || !appConfig.includes("scriptId: ''")) failures.push("TypeScript generation or optional analytics is invalid");
+    if (!appConfig.includes("nav: { links: 'auto', socialIcons: true }")) failures.push("generated docs must show configured social links in the header");
     const markdown = await readFile(join(hostileOutput, "docs/content/docs/1.getting-started/1.index.md"), "utf8");
     const frontmatterDescription = markdown.split("\n").find(line => line.startsWith("description: "))?.slice("description: ".length);
     if (!frontmatterDescription || JSON.parse(frontmatterDescription) !== "Install Bob's App and use its first API.") failures.push("Markdown frontmatter did not preserve the title");

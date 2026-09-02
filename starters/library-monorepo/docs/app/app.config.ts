@@ -10,6 +10,7 @@ export default defineAppConfig({
         { label: { en: 'Privacy' }, to: 'https://lupinum.com/datenschutz' },
       ],
     },
+    nav: { links: 'auto', socialIcons: true },
     social: { github: 'https://github.com/{{REPOSITORY}}', discord: 'https://discord.gg/RPH6SeA36N' },
     repository: { url: 'https://github.com/{{REPOSITORY}}', branch: 'main', contentDirectory: 'docs/content' },
     analytics: { plausible: { scriptId: '{{PLAUSIBLE_ID}}' } },
