@@ -51,6 +51,12 @@
       "vercelProject": "nuxt-photo-docs",
       "policy": "library-docs-on-demand",
       "releaseProfile": "fixed-package-set"
+    },
+    {
+      "repository": "lupinum-dev/nuxt-tour",
+      "vercelProject": "nuxt-tour",
+      "policy": "library-docs-on-demand",
+      "releaseProfile": "single-package"
     }
   ]
 }
