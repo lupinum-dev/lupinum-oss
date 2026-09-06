@@ -42,10 +42,13 @@ repository or its CI.
 The fleet audit also reads dependency-policy sources at one default-branch commit.
 It compares the checker with the canonical shared copy, validates the root workspace
 YAML at audit time, and checks supported local, pull-request, push, and daily schedule
-wiring. It recognizes direct pnpm gates, simple `&&` script chains, and explicit
-GitHub event comparisons. The only supported environment setting is a literal
-`NODE_OPTIONS: --max-old-space-size=<positive integer>`. Unknown wrappers, conditions,
-working directories, and reusable workflows remain unverified; failed or unverified source checks exit nonzero.
+wiring. It follows leading pnpm script calls through simple `&&` chains, rejects cycles,
+and recognizes explicit GitHub event comparisons. Bare calls support `verify`
+and namespaced scripts; other script names need explicit `pnpm run` to avoid
+confusion with pnpm built-in commands. The only supported environment setting is
+a literal `NODE_OPTIONS: --max-old-space-size=<positive integer>`. Unknown wrappers,
+conditions, working directories, and reusable workflows remain unverified.
+Failed or unverified source checks exit nonzero.
 These are source checks, not evidence that hosted jobs ran or that generated installs,
 lifecycle scripts, environment variables, or CLI overrides preserve the policy.
 

@@ -128,6 +128,33 @@ assert.ok(dependencyChecks(changedSource(".github/workflows/ci.yml", workflowSou
   .replaceAll("github.event.schedule != '23 4 * * *'", "github.event_name != 'schedule'")
   .replace("run: pnpm release:verify", "run: pnpm run release:verify"),
 )).every((check) => check.status === "proven"));
+const indirectScripts = {
+  "check:dependencies": "node scripts/check-dependency-policy.mjs",
+  verify: "pnpm verify:core && pnpm test:browser",
+  "release:verify": "pnpm verify:core && pnpm build",
+  "verify:core": "pnpm run quality && pnpm lint",
+  quality: "pnpm run check:dependencies && pnpm test",
+};
+const indirectState = (changes) => changedSource("package.json", JSON.stringify({
+  scripts: { ...indirectScripts, ...changes },
+}));
+assert.ok(dependencyChecks(indirectState({})).every((check) => check.status === "proven"));
+for (const [changes, expected] of [
+  [{ "verify:core": "pnpm verify" }, "failed"],
+  [{ "verify:core": "pnpm verify:core" }, "failed"],
+  [{ "verify:core": undefined }, "failed"],
+  [{ quality: "pnpm run missing" }, "failed"],
+  [{ quality: "pnpm check:dependencies || true" }, "unverified"],
+  [{ quality: "echo check && pnpm check:dependencies" }, "unverified"],
+  [{ quality: "node scripts/wrapper.mjs" }, "unverified"],
+  [{ quality: "pnpm check:dependencies --ignore-errors" }, "unverified"],
+  [{ quality: "pnpm exec", exec: "pnpm check:dependencies" }, "unverified"],
+  [{ quality: "pnpm run --help", "--help": "pnpm check:dependencies" }, "unverified"],
+  [{ "check:dependencies": "pnpm run another", another: "node scripts/check-dependency-policy.mjs" }, "unverified"],
+]) {
+  assertStatus(indirectState(changes), "local-wiring", expected);
+  assertStatus(indirectState(changes), "push-wiring", expected);
+}
 // Test the real maintained workflow as well as the deliberately small fixture.
 assert.ok(dependencyChecks(changedSource(".github/workflows/ci.yml",
   await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),

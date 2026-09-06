@@ -124,16 +124,23 @@ export function evaluateRepositoryState(state, canonicalWorkflow) {
 
 // This recognizes source declarations, not arbitrary shell programs or hosted execution.
 function scriptGate(scripts, name) {
-  const command = scripts?.[name];
-  if (!command) return "failed";
-  if (name === "check:dependencies") {
-    return command === "node scripts/check-dependency-policy.mjs" ? "proven" : "unverified";
+  const visited = new Set();
+  while (!visited.has(name)) {
+    visited.add(name);
+    const command = scripts?.[name];
+    if (!command) return "failed";
+    if (name === "check:dependencies") {
+      return command === "node scripts/check-dependency-policy.mjs" ? "proven" : "unverified";
+    }
+    if (typeof command !== "string" || !/^[\w./:@ -]+(?: && [\w./:@ -]+)*$/u.test(command)) return "unverified";
+    const invocation = /^pnpm (run )?([A-Za-z0-9_][\w.:-]*)$/u.exec(command.split(" && ")[0]);
+    if (!invocation) return "unverified";
+    // Explicit run avoids pnpm built-in commands shadowing a manifest script.
+    // Bare calls retain the existing verify gate and namespaced script convention.
+    if (!invocation[1] && invocation[2] !== "verify" && !invocation[2].includes(":")) return "unverified";
+    name = invocation[2];
   }
-  if (typeof command !== "string" || !/^[\w./:@ -]+(?: && [\w./:@ -]+)*$/u.test(command)) return "unverified";
-  const first = command.split(" && ")[0];
-  if (first === "pnpm check:dependencies") return scriptGate(scripts, "check:dependencies");
-  if (name === "release:verify" && first === "pnpm verify") return scriptGate(scripts, "verify");
-  return "unverified";
+  return "failed";
 }
 
 function conditionApplies(condition, event, cron) {
