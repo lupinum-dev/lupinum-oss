@@ -409,7 +409,13 @@ async function releaseState(state, pkg, versions, profile, registry) {
       .map(async (entry) => ({ name: entry.name, integrity: await assetIntegrity(entry) })));
     const provenance = registry.provenance[version];
     const bootstrap = (provenance === false || provenance?.present === false) ? await bootstrapState(state, pkg, version, registry, release) : undefined;
-    const sourceCommit = provenance?.verified === true ? provenance.sourceCommit : bootstrap?.status === "PROVEN" ? bootstrap.sourceCommit : undefined;
+    const sourceCommit = provenance?.verified === true
+      ? provenance.sourceCommit
+      : bootstrap?.status === "PROVEN"
+        ? bootstrap.sourceCommit
+        : version === pkg.version && !registry.versions.includes(version)
+          ? state.sha
+          : undefined;
     return [version, {
       tag: tag?.name,
       tagTarget: tag?.targetSha,
