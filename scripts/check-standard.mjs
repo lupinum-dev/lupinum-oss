@@ -82,7 +82,7 @@ for (const scenario of [
     failures.push(`The handbook Vercel filter failed the ${scenario.name} fixture.`);
   }
 }
-for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
+for (const command of ["dev", "build", "verify", "docs:build", "audit:all", "release:verify"]) {
   if (!packageJson.scripts?.[command]) failures.push(`Missing root command: ${command}`);
 }
 if (packageJson.private !== true) failures.push("The handbook workspace must stay private to npm.");

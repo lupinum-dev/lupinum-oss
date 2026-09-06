@@ -97,8 +97,13 @@ jobs:
           git add .
           git commit -m "test: materialize starter"
       - name: Verify generated project and release contract
+        if: matrix.profile != 'app'
         working-directory: ${{ runner.temp }}/generated
         run: GITHUB_SHA="$(git rev-parse HEAD)" pnpm release:verify
+      - name: Verify generated application
+        if: matrix.profile == 'app'
+        working-directory: ${{ runner.temp }}/generated
+        run: pnpm verify
 
   gate:
     name: Starter smoke

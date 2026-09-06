@@ -1,8 +1,45 @@
 # Maintaining {{TITLE}}
 
-## Quick fix
+## Setup and daily work
 
-Create a focused branch. Add a regression test. Run `pnpm verify`. Open a pull request with the result, verification, release note, and risk.
+```bash
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Use the local URL printed by the development server. Keep that session running
+while you work. Stop only processes you started. Keep temporary changes and
+controlled failures in an isolated checkout.
+
+An assigned task delegates setup, diagnosis, implementation, verification,
+review, routine pull requests and protected merges. Routine work has no breaking
+contract, data migration, or permission change, and has passing checks and a
+known rollback. Meaningful code, CI, and dependency changes need independent
+review of the final diff. Ask for unresolved product decisions or expanded
+security authority. Prepare the evidence before asking.
+
+## Commands and evidence
+
+| Command | Evidence |
+|---|---|
+| `pnpm dev` | A usable local development target. Inspect its real browser behavior. |
+| `pnpm build` | The primary production output. |
+| `pnpm verify` | The complete local handoff gate defined in package scripts. |
+| `pnpm audit:all` | Dependency audit for the full workspace. |
+| `pnpm docs:build` | The public documentation site builds. |
+| `pnpm release:verify` | Certified tarballs install and work in isolated consumers. |
+
+For documentation changes, explore navigation, search, and one documented example
+on desktop and a narrow screen. A successful docs build alone does not prove the
+packed package works. Release verification installs the tarball independently.
+Linux CI repeats certification in its own environment; npm provenance and public
+release records are checked by the protected release workflow.
+
+Routine version pull requests may be independently reviewed and merged by agents.
+Keep the final protected npm approval with the maintainer. Retry the retained
+tarball; do not rebuild it after approval. Documentation deploys automatically
+from protected `main`; pull-request previews are on demand.
 
 ## Large change
 

@@ -20,6 +20,7 @@
     "audit:all": "pnpm audit",
     "build": "tsup src/index.ts --format esm --dts --clean",
     "docs:build": "pnpm --dir docs build",
+    "dev": "pnpm build && pnpm docs:dev",
     "docs:dev": "pnpm --dir docs dev",
     "lint": "eslint .",
     "pack:release": "node scripts/pack-release.mjs",

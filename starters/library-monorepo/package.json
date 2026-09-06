@@ -8,6 +8,7 @@
     "audit:all": "pnpm audit",
     "build": "pnpm --filter './packages/*' -r build",
     "docs:build": "pnpm build && pnpm --dir docs build",
+    "dev": "pnpm build && pnpm docs:dev",
     "docs:dev": "pnpm --dir docs dev",
     "lint": "eslint .",
     "pack:release": "node scripts/pack-release.mjs",
@@ -16,7 +17,7 @@
     "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release && node scripts/verify-packed-consumer.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm docs:build"
+    "verify": "pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm --dir docs build"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

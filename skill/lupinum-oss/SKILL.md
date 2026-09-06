@@ -30,6 +30,12 @@ Do not copy detailed handbook policy into generated explanations or this skill. 
 
 Keep the user's requested scope. Do not turn an audit into a migration or a release preparation into publication without authorization.
 
+For delegated maintenance, follow the target's `MAINTAINING.md` through setup,
+diagnosis, verification, independent review, authorized merge, and cleanup.
+Inspect user-facing changes in a real browser. Ask only for an unresolved decision
+or protected action after preparing its evidence. Keep routine version review
+separate from the final protected npm approval.
+
 ## Create a repository
 
 1. Confirm whether the product is:

@@ -2,6 +2,12 @@
 
 This repository is the public source for the Lupinum OSS handbook, repository starters, and Codex skill.
 
+It governs the public library fleet. Customer application operations and a
+central release service are outside its scope. Read [MAINTAINING.md](MAINTAINING.md)
+for setup, delegated work, verification, review, and recovery. Preserve existing
+work, define observable acceptance criteria, and complete the authorized task
+through post-merge verification and cleanup.
+
 ## Ownership
 
 - `docs/` explains the fleet-wide standard and public procedures.
