@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkDependencyPolicyFile } from "./check-dependency-policy.mjs";
 import { checkCiWorkflow, checkPreviewWorkflow, checkPublishWorkflow, checkWorkflow, containsNpmCredential, readWorkflow } from "./workflow-policy.mjs";
+import { evaluatePackageProfile, evaluateReleaseIntent } from "./fleet-release-policy.mjs";
 
 const root = new URL("../starters/", import.meta.url);
 const profiles = ["library", "library-monorepo", "app"];
@@ -48,6 +49,7 @@ for (const profile of profiles) {
   ];
   required.push(profile === "app" ? "vercel.json" : "docs/vercel.json");
   required.push(profile === "app" ? "scripts/vercel-ignore.mjs" : "docs/scripts/vercel-ignore.mjs");
+  if (profile === "library-monorepo") required.push(".changeset/config.json");
   if (profile !== "app") {
     required.push(
       ".github/workflows/package-preview.yml",
@@ -273,6 +275,24 @@ for (const profile of profiles) {
   }
   if (generatedCi.includes("GITHUB_TOKEN")) {
     failures.push(`${profile} CI must keep Action verification tokenless`);
+  }
+  if (profile === "library-monorepo") {
+    const publicPackages = await Promise.all((await readdir(join(output, "packages"))).map(async (directory) =>
+      JSON.parse(await readFile(join(output, "packages", directory, "package.json"), "utf8"))));
+    const generatedPaths = (await walk(output)).map((path) => path.slice(output.length + 1));
+    const generatedManifest = JSON.parse(await readFile(join(output, "package.json"), "utf8"));
+    const config = JSON.parse(await readFile(join(output, ".changeset/config.json"), "utf8"));
+    const names = publicPackages.map((pkg) => pkg.name).sort();
+    if (config.fixed?.length !== 1 || JSON.stringify([...config.fixed[0]].sort()) !== JSON.stringify(names)) {
+      failures.push("generated monorepo must place every public package in one explicit Changesets fixed group");
+    }
+    if (!generatedManifest.devDependencies["@changesets/cli"]) failures.push("generated monorepo must declare Changesets directly");
+    for (const check of [
+      ...evaluatePackageProfile("fixed-package-set", publicPackages, generatedPaths),
+      evaluateReleaseIntent("fixed-package-set", generatedPaths, [generatedManifest]),
+    ]) {
+      if (check.status !== "PROVEN") failures.push(`generated monorepo ${check.id}: ${check.evidence}`);
+    }
   }
   for (const forbidden of ["setup.mjs", "template.json"]) {
     if (await exists(new URL(`${profile}/${forbidden}`, new URL(`file://${materializedRoot}/`)))) failures.push(`${profile} generated ${forbidden}`);

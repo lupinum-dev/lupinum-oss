@@ -54,6 +54,10 @@ await generate({
     await rm(source, { recursive: true })
   },
   finalize: async temporary => {
+    const changesetPath = join(temporary, '.changeset', 'config.json')
+    const changeset = JSON.parse(await readFile(changesetPath, 'utf8'))
+    changeset.fixed = [packages]
+    await writeFile(changesetPath, `${JSON.stringify(changeset, null, 2)}\n`)
     const path = join(temporary, 'docs', 'package.json')
     const manifest = JSON.parse(await readFile(path, 'utf8'))
     manifest.dependencies = Object.fromEntries([
