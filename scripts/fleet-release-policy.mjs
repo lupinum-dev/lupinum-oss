@@ -132,8 +132,11 @@ function manualVersionCiTrigger(workflow, verifier) {
     && /status=completed/u.test(scripts)
     && /\.conclusion\s*==\s*["']success["']/u.test(scripts)
     && /\.head_branch\s*==\s*["']main["']/u.test(scripts);
-  const versionValidated = /RELEASE_VERSION/u.test(scripts)
-    && /Invalid release version/u.test(scripts);
+  // Recognize the failing validation expression, not its error message. Shell
+  // double quotes may escape each backslash once before Node receives it.
+  const versionGuards = [...scripts.matchAll(/if\s*\(\s*!\/([^\n]+?)\/\.test\(process\.env\.RELEASE_VERSION\)\s*\)\s*throw new Error\(/gu)];
+  const versionValidated = versionGuards.some((match) =>
+    match[1].replaceAll("\\\\", "\\") === String.raw`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$`);
   const runOutput = /(?:run-id|run_id)=%s/u.test(scripts)
     && /GITHUB_OUTPUT/u.test(scripts);
   return exactMain && versionValidated && runOutput && runBoundDownload;
@@ -277,7 +280,25 @@ function checkReleaseReconciliation(path, workflow, protectedName) {
   if (!/gh\s+api[\s\S]*--method\s+POST[\s\S]*git\/refs/u.test(commands)) {
     failures.push(`${path} job ${releaseName} cannot create an exact-source lightweight tag before the GitHub Release.`);
   }
-  if (!/git\/(?:ref|matching-refs)\/tags/u.test(commands) || !/(?:SOURCE_SHA|MANIFEST_SOURCE|manifest_source)/u.test(commands)) {
+  // Core workflows may bind the retained manifest to the dispatch commit.
+  // Require validation, tag creation and readback together in the same step.
+  const dispatchSourceBinding = (releaseJob.steps ?? []).some((step) => {
+    const command = step.run ?? "";
+    const lines = command.split("\n").map((line) => line.trim());
+    const manifestPaths = releaseDownloads.flatMap((download) => {
+      const root = download.with?.path;
+      if (typeof root !== "string" || isExpression(root) || root.startsWith("/") || root.split("/").includes("..")) return [];
+      const inArtifactDirectory = step["working-directory"] === root
+        || lines.includes(`cd ${root}`);
+      return [`./${root.replace(/^\.\//u, "")}/release.json`, ...(inArtifactDirectory ? ["./release.json"] : [])];
+    });
+    const manifestBound = manifestPaths.some((manifestPath) =>
+      lines.includes(`test "$(node -p "require('${manifestPath}').sourceSha")" = "$GITHUB_SHA"`));
+    return manifestBound
+      && /gh\s+api[^\n]*--method\s+POST[^\n]*git\/refs[^\n]*-f sha="\$GITHUB_SHA"/u.test(command)
+      && lines.includes('test "$tag_sha" = "$GITHUB_SHA"');
+  });
+  if (!/git\/(?:ref|matching-refs)\/tags/u.test(commands) || (!/(?:SOURCE_SHA|MANIFEST_SOURCE|manifest_source)/u.test(commands) && !dispatchSourceBinding)) {
     failures.push(`${path} job ${releaseName} does not read the release tag back and bind it to the certified source SHA.`);
   }
   if (!/HUMAN-ONLY/u.test(commands) || !/(?:HTTP\s+403|Resource not accessible by integration)/u.test(commands)) {
