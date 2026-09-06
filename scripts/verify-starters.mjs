@@ -203,6 +203,10 @@ for (const profile of profiles) {
   const ciPath = new URL(".github/workflows/ci.yml", base).pathname;
   const { workflow: ci } = await readWorkflow(ciPath);
   failures.push(...checkCiWorkflow(`${profile}/.github/workflows/ci.yml`, ci));
+  if (!Object.hasOwn(ci.on ?? {}, "pull_request")
+    || ci.on.pull_request?.branches || ci.on.pull_request?.["branches-ignore"]) {
+    failures.push(`${profile} CI must verify pull requests targeting any branch, including stack layers`);
+  }
   const vercelPath = profile === "app" ? "vercel.json" : "docs/vercel.json";
   const wrongVercelPath = profile === "app" ? "docs/vercel.json" : "vercel.json";
   if (await exists(new URL(wrongVercelPath, base))) failures.push(`${profile} keeps Vercel configuration outside its deployment root`);
