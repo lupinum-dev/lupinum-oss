@@ -527,7 +527,7 @@ async function main() {
           const expectedWorkflow = state.workflows.find(({ source }) => Object.values(parse(source).jobs ?? {}).some((job) => environmentName(job) === "npm"))?.path;
           const registry = await registryState(pkg, entry.repository, expectedWorkflow, fleet.releaseHistoryCutoff);
           registries[pkg.name] = registry;
-          const versions = new Set(registry.relevantVersions);
+          const versions = new Set([...registry.relevantVersions, pkg.version]);
           checks.push(...evaluateRegistryPackage(pkg, registry, await releaseState(state, pkg, versions, entry.releaseProfile, registry), entry.releaseProfile));
         } catch (error) {
           checks.push({ status: "UNVERIFIED", id: `npm:${pkg.name}`, evidence: error.message });
