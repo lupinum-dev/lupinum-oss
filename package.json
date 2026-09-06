@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm docs:dev",
     "build": "pnpm docs:build",
+    "check:dependencies": "node scripts/check-dependency-policy.mjs",
     "audit:all": "pnpm audit",
     "check:standard": "node scripts/check-standard.mjs",
     "docs:build": "node scripts/clean-docs-output.mjs && pnpm --dir docs build && node scripts/verify-docs-output.mjs",
@@ -20,9 +21,10 @@
     "skill:validate": "node scripts/validate-skill.mjs",
     "starters:publish-policy": "node scripts/test-starter-publish-policy.mjs",
     "starters:verify": "node scripts/verify-starters.mjs",
+    "test:dependency-policy": "node scripts/test-dependency-policy.mjs",
     "test:docs-output": "node scripts/test-docs-output.mjs",
     "test:url-contract": "node scripts/test-url-contract.mjs",
-    "verify": "pnpm audit:all && pnpm test:url-contract && pnpm test:docs-output && pnpm shared:check && pnpm fleet:check && pnpm fleet:release-check && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build"
+    "verify": "pnpm check:dependencies && pnpm test:dependency-policy && pnpm audit:all && pnpm test:url-contract && pnpm test:docs-output && pnpm shared:check && pnpm fleet:check && pnpm fleet:release-check && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build"
   },
   "devDependencies": {
     "changelogen": "0.6.2",

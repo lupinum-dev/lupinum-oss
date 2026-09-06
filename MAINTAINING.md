@@ -46,6 +46,14 @@ retained candidate.
 
 ## Dependency updates
 
+`pnpm check:dependencies` checks the install policy and exception expiry.
+For an exception, put `reason`, `owner`, and UTC `expires` in an inline JSON
+comment on its exact `minimumReleaseAgeExclude` entry in `pnpm-workspace.yaml`.
+Use a removal time within 24 hours. Remove the entry and comment when it expires.
+CI checks expiry daily, including while the repository is idle. Check generated
+install configuration before installing it with
+`node scripts/check-dependency-policy.mjs path/to/pnpm-workspace.yaml`.
+
 Prefer Renovate. Wait until a new external version is at least 24 hours old. Run `pnpm audit:all` and `pnpm verify` before merge.
 
 Use one exact temporary exclusion only for a reviewed Lupinum release or an urgent incident. Record the reason and removal time. Remove it after 24 hours.

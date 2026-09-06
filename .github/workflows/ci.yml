@@ -5,11 +5,14 @@ on:
   push:
     branches: [main]
 
+  schedule:
+    - cron: '23 4 * * *'
+
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event.schedule }}
   cancel-in-progress: true
 
 jobs:
@@ -29,7 +32,15 @@ jobs:
           package-manager-cache: false
 
       - run: corepack enable
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm verify
+      - if: github.event.schedule == '23 4 * * *'
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - if: github.event.schedule == '23 4 * * *'
+        run: pnpm check:dependencies
+      - if: github.event.schedule == '23 4 * * *'
+        run: pnpm starters:verify
+      - if: github.event.schedule != '23 4 * * *'
+        run: pnpm install --frozen-lockfile
+      - if: github.event.schedule != '23 4 * * *'
+        run: pnpm verify
       - name: Verify pinned Actions exist upstream
         run: node scripts/verify-action-shas.mjs

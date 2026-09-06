@@ -40,6 +40,14 @@ Open an issue first. Record important architecture decisions. Keep migration and
 
 ## Dependency update
 
+`pnpm check:dependencies` checks the install policy and exception expiry.
+For an exception, put `reason`, `owner`, and UTC `expires` in an inline JSON
+comment on its exact `minimumReleaseAgeExclude` entry in `pnpm-workspace.yaml`.
+Use a removal time within 24 hours. Remove the entry and comment when it expires.
+CI checks expiry daily, including while the repository is idle. Check generated
+install configuration before installing it with
+`node scripts/check-dependency-policy.mjs path/to/pnpm-workspace.yaml`.
+
 Use Renovate for routine updates. Do not bypass the 24-hour quarantine. Run `pnpm verify`, which includes the audit.
 
 ## Documentation or copy change

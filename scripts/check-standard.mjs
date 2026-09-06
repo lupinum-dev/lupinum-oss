@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { parse } from "yaml";
 import { hasExactUrl } from "./url-contract.mjs";
 import { checkWorkflow, containsNpmCredential, readWorkflow } from "./workflow-policy.mjs";
+import { checkDependencyPolicyFile } from "./check-dependency-policy.mjs";
 
 const root = new URL("../", import.meta.url);
 const failures = [];
@@ -123,13 +124,7 @@ const renovate = JSON.parse(await text("renovate.json"));
 if (renovate.minimumReleaseAge !== "1 day") {
   failures.push("Renovate must match the 24-hour pnpm quarantine.");
 }
-for (const setting of [
-  "minimumReleaseAge: 1440",
-  "minimumReleaseAgeStrict: true",
-  "minimumReleaseAgeIgnoreMissingTime: false",
-]) {
-  if (!workspace.includes(setting)) failures.push(`Missing dependency policy: ${setting}`);
-}
+failures.push(...await checkDependencyPolicyFile(new URL("../pnpm-workspace.yaml", import.meta.url)));
 for (const dependencyPath of ["fontless>esbuild", "vite>esbuild"]) {
   if (!workspace.includes(`"${dependencyPath}": 0.28.2`)) {
     failures.push(`The handbook is missing the reviewed ${dependencyPath} security override.`);

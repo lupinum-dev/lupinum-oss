@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { checkDependencyPolicyFile } from "./check-dependency-policy.mjs";
 import { checkCiWorkflow, checkPreviewWorkflow, checkPublishWorkflow, checkWorkflow, containsNpmCredential, readWorkflow } from "./workflow-policy.mjs";
 
 const root = new URL("../starters/", import.meta.url);
@@ -74,8 +75,10 @@ for (const profile of profiles) {
   const workspace = await readFile(new URL("pnpm-workspace.yaml", base), "utf8");
   const renovate = JSON.parse(await readFile(new URL("renovate.json", base), "utf8"));
   if (renovate.minimumReleaseAge !== "1 day") failures.push(`${profile} Renovate must match the 24-hour pnpm quarantine`);
-  for (const setting of ["minimumReleaseAge: 1440", "minimumReleaseAgeStrict: true", "minimumReleaseAgeIgnoreMissingTime: false"]) {
-    if (!workspace.includes(setting)) failures.push(`${profile} is missing ${setting}`);
+  failures.push(...(await checkDependencyPolicyFile(new URL("pnpm-workspace.yaml", base))).map((failure) => `${profile}: ${failure}`));
+  if (manifest.scripts["check:dependencies"] !== "node scripts/check-dependency-policy.mjs"
+    || !manifest.scripts.verify.startsWith("pnpm check:dependencies && ")) {
+    failures.push(`${profile} verification must start with the dependency policy check`);
   }
   const esbuildOverridePaths = ["fontless>esbuild", "vite>esbuild"];
   if (profile !== "app") esbuildOverridePaths.push("tsup>esbuild", "bundle-require>esbuild");
@@ -260,6 +263,7 @@ for (const profile of profiles) {
     failures.push(`${profile} setup failed: ${(generated.stderr || generated.stdout).trim()}`);
     continue;
   }
+  failures.push(...(await checkDependencyPolicyFile(join(output, "pnpm-workspace.yaml"))).map((failure) => `${profile} generated: ${failure}`));
   if (!(await exists(join(output, "scripts/verify-action-shas.mjs")))) {
     failures.push(`${profile} generated project is missing upstream Action SHA verification`);
   }
