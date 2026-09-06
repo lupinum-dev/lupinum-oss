@@ -10,13 +10,16 @@ import { basename, join, resolve } from "node:path";
 if (process.argv.length !== 3) throw new Error("Pass the installed generated monorepo directory.");
 const source = resolve(process.argv[2]);
 const project = await mkdtemp(join(tmpdir(), "lupinum-fixed-release-"));
+// Disposable commits and outputs must not inherit the enclosing workflow's identity or files.
+const trialEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GITHUB_")));
 const readJson = async (path) => JSON.parse(await readFile(join(project, path), "utf8"));
 const writeJson = (path, value) => writeFile(join(project, path), `${JSON.stringify(value, null, 2)}\n`);
-function run(command, args, expectedStatus = 0) {
-  const result = spawnSync(command, args, { cwd: project, encoding: "utf8", timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
+function run(command, args, expectedStatus = 0, env = {}) {
+  const result = spawnSync(command, args, { cwd: project, env: { ...trialEnv, ...env }, encoding: "utf8", timeout: 180000, maxBuffer: 8 * 1024 * 1024 });
   assert.ok(Number.isInteger(result.status), `${command} did not finish: ${result.error?.message ?? result.signal}`);
   if (expectedStatus === 0) assert.equal(result.status, 0, `${command} ${args.join(" ")}\n${result.stdout}\n${result.stderr}`);
   else assert.notEqual(result.status, 0, `${command} unexpectedly succeeded`);
+  if (expectedStatus instanceof RegExp) assert.match(`${result.stdout}\n${result.stderr}`, expectedStatus);
   return result.stdout.trim();
 }
 function commit(message) {
@@ -74,8 +77,11 @@ try {
     assert.ok(changelog.includes("## v0.1.0\n"), "Earlier release notes must survive.");
     commit(`chore: prepare ${version}`);
     const sourceSha = run("git", ["rev-parse", "HEAD"]);
+    const staleSha = run("git", ["rev-parse", "HEAD^"]);
     run("pnpm", ["build"]);
-    run("pnpm", ["pack:release"]);
+    run("pnpm", ["pack:release"], /The release source differs from GITHUB_SHA\./, { GITHUB_SHA: staleSha });
+    await assert.rejects(readJson("release-artifacts/release.json"), { code: "ENOENT" });
+    run("pnpm", ["pack:release"], 0, { GITHUB_SHA: sourceSha });
     run("node", ["scripts/verify-packed-consumer.mjs"]);
     const manifest = await readJson("release-artifacts/release.json");
     assert.equal(manifest.version, version);
