@@ -39,6 +39,19 @@ without changing it. Complete the Vercel portion through the authenticated
 Lupinum OSS agent procedure; do not store a team-wide Vercel token in this
 repository or its CI.
 
+The fleet audit also reads dependency-policy sources at one default-branch commit.
+It compares the checker with the canonical shared copy, validates the root workspace
+YAML at audit time, and checks supported local, pull-request, push, and daily schedule
+wiring. It follows leading pnpm script calls through simple `&&` chains, rejects cycles,
+and recognizes explicit GitHub event comparisons. Bare calls support `verify`
+and namespaced scripts; other script names need explicit `pnpm run` to avoid
+confusion with pnpm built-in commands. The only supported environment setting is
+a literal `NODE_OPTIONS: --max-old-space-size=<positive integer>`. Unknown wrappers,
+conditions, working directories, and reusable workflows remain unverified.
+Failed or unverified source checks exit nonzero.
+These are source checks, not evidence that hosted jobs ran or that generated installs,
+lifecycle scripts, environment variables, or CLI overrides preserve the policy.
+
 Run `pnpm fleet:release-audit` for release conformance. It derives package and
 workflow inventories from each repository, reads GitHub and npm without
 mutation, and separates failed, unverified, and human-only evidence.
