@@ -521,6 +521,37 @@ assert.equal(
   "FAILED",
   "The protected job must publish only beneath its retained-artifact path.",
 );
+for (const [target, status] of [
+  ["./candidate/package.tgz", "PROVEN"],
+  ["candidate/../evil.tgz", "FAILED"],
+  ["./candidate/../evil.tgz", "FAILED"],
+  ["../candidate/package.tgz", "FAILED"],
+  ["candidate-other/package.tgz", "FAILED"],
+  ["/candidate/package.tgz", "FAILED"],
+]) {
+  const source = validWorkflow.replace("npm publish candidate/package.tgz", `npm publish ${target}`);
+  assert.equal(check(workflowChecks(source), "release-publish-boundary").status, status, target);
+}
+assert.equal(
+  check(workflowChecks(boundTemplateVariable.replace("`candidate/", "`./candidate/")), "release-publish-boundary").status,
+  "PROVEN",
+  "A bound template may use an explicit current-directory prefix.",
+);
+for (const extraCommand of [
+  "npm publish /tmp/evil.tgz --provenance --ignore-scripts",
+  "printf replaced > ./candidate/package.tgz",
+]) {
+  const source = validWorkflow.replace("      - run: npm publish candidate/package.tgz --provenance --ignore-scripts", `      - run: npm publish candidate/package.tgz --provenance --ignore-scripts\n      - run: ${extraCommand}`);
+  assert.equal(check(workflowChecks(source), "release-publish-boundary").status, "FAILED", extraCommand);
+}
+const mixedSameStep = validWorkflow.replace("npm publish candidate/package.tgz --provenance --ignore-scripts", "npm publish candidate/package.tgz --provenance --ignore-scripts && npm publish /tmp/evil.tgz --provenance --ignore-scripts");
+assert.equal(check(workflowChecks(mixedSameStep), "release-publish-boundary").status, "FAILED", "A second publisher in the same step must also be checked.");
+for (const command of ["npm publish", "if true; then npm publish /tmp/evil.tgz --provenance --ignore-scripts; fi"]) {
+  const source = validWorkflow.replace("npm publish candidate/package.tgz --provenance --ignore-scripts", `npm publish candidate/package.tgz --provenance --ignore-scripts; ${command}`);
+  assert.equal(check(workflowChecks(source), "release-publish-boundary").status, "UNVERIFIED", `Unrecognized publication must block: ${command}`);
+}
+const unsupportedTarget = validWorkflow.replace("npm publish candidate/package.tgz --provenance --ignore-scripts", `node -e "run(['publish', record.filename, '--provenance', '--ignore-scripts'])"`);
+assert.equal(check(workflowChecks(unsupportedTarget), "release-publish-boundary").status, "UNVERIFIED", "Unsupported target analysis must remain a blocker without asserting unsafe behavior.");
 assert.equal(
   check(evaluateReleaseWorkflows([
     { path: ".github/workflows/publish.yml", source: validWorkflow },

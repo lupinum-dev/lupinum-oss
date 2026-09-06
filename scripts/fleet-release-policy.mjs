@@ -42,28 +42,51 @@ function isPublishCommand(commands) {
     || /\brun\(\s*\[\s*["']publish["']/u.test(commands);
 }
 
-function publishesDownloadedArtifact(job) {
+function retainedPublicationStatus(job) {
   const commands = commandsFor(job);
-  const paths = actionSteps(job, "actions/download-artifact").map((step) => step.with?.path).filter((path) => typeof path === "string" && !isExpression(path));
-  if (paths.length === 0) return false;
-  // Publication may read npm's attestation API. Reject commands that can replace
-  // retained bytes; a read-only `fetch()` is not itself an artifact mutation.
-  if (/(?:^|\s)(?:curl|wget)\b/mu.test(commands)) return false;
-  if (paths.some((path) => mutatesRetainedTarball(job.steps ?? [], path))) return false;
-  return paths.some((path) => {
-    const escaped = path.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-    const literalTarget = new RegExp(`(?:npm|pnpm)\\s+publish\\s+["']?${escaped}/`, "u").test(commands)
-      || new RegExp(`["']publish["']\\s*,\\s*["']${escaped}/`, "u").test(commands);
-    const templateTarget = [...commands.matchAll(/["']publish["']\s*,\s*`([^`]+)`/gu)]
-      .some((match) => match[1].startsWith(`${path}/`) && !match[1].includes("../"));
-    const boundVariables = [...commands.matchAll(new RegExp(`(?:const|let)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:join|resolve)\\(\\s*["']${escaped}["']`, "gu"))].map((match) => match[1]);
-    const templateVariables = [...commands.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*`([^`]+)`/gu)]
-      .filter((match) => match[2].startsWith(`${path}/`) && !match[2].includes("../"))
-      .map((match) => match[1]);
-    const boundTarget = [...boundVariables, ...templateVariables]
-      .some((variable) => new RegExp(`["']publish["']\\s*,\\s*${variable}(?:\\s*[,\\]])`, "u").test(commands));
-    return literalTarget || templateTarget || boundTarget;
-  });
+  const paths = actionSteps(job, "actions/download-artifact").map((step) => step.with?.path)
+    .filter((path) => typeof path === "string" && !isExpression(path));
+  if (paths.length === 0) return "FAILED";
+  // A read-only attestation fetch does not replace retained bytes.
+  if (/(?:^|\s)(?:curl|wget)\b/mu.test(commands)
+    || paths.some((path) => mutatesRetainedTarball(job.steps ?? [], path))) return "FAILED";
+
+  const withinArtifact = (target) => {
+    if (target.startsWith("/") || target.split("/").includes("..")) return false;
+    const normalized = target.replace(/^\.\//u, "");
+    return paths.some((path) => normalized.startsWith(`${path.replace(/^\.\//u, "")}/`));
+  };
+  const statuses = [];
+  for (const step of job.steps ?? []) {
+    const command = step.run ?? "";
+    // Inspect every supported publication in its own step. One safe command
+    // must not hide a second publisher outside the downloaded directory.
+    const targets = [
+      ...[...command.matchAll(/(?:^|&&|\|\||;)\s*(?:npm|pnpm|yarn\s+npm)\s+publish\s+([^\s;]+)(?:\s|$)/gmu)].map((match) => ({ value: match[1], shell: true, index: match.index, length: match[0].length })),
+      ...[...command.matchAll(/\[\s*["']publish["']\s*,\s*('[^']*'|"[^"]*"|`[^`]*`|[A-Za-z_$][\w$.]*)/gu)].map((match) => ({ value: match[1], shell: false, index: match.index, length: match[0].length })),
+    ];
+    for (const target of targets) {
+      const quoted = /^["'`]/u.test(target.value);
+      if (quoted || target.shell) {
+        const value = quoted ? target.value.slice(1, -1) : target.value;
+        statuses.push(value.startsWith("$") ? "UNVERIFIED" : withinArtifact(value) ? "PROVEN" : "FAILED");
+        continue;
+      }
+      const templateBinding = [...command.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*`([^`]+)`/gu)]
+        .find((match) => match[1] === target.value);
+      const pathBinding = [...command.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:join|resolve)\(\s*["']([^"']+)["']/gu)]
+        .find((match) => match[1] === target.value);
+      const boundPath = templateBinding?.[2] ?? (pathBinding ? `${pathBinding[2]}/` : undefined);
+      statuses.push(boundPath === undefined ? "UNVERIFIED" : withinArtifact(boundPath) ? "PROVEN" : "FAILED");
+    }
+    let remaining = command;
+    for (const target of targets.sort((a, b) => b.index - a.index)) {
+      remaining = remaining.slice(0, target.index) + remaining.slice(target.index + target.length);
+    }
+    if (isPublishCommand(remaining)) statuses.push("UNVERIFIED");
+  }
+  if (statuses.includes("FAILED")) return "FAILED";
+  return statuses.length && statuses.every((status) => status === "PROVEN") ? "PROVEN" : "UNVERIFIED";
 }
 
 function releaseCoordinateInputs(workflow) {
@@ -143,7 +166,7 @@ function manualVersionCiTrigger(workflow, verifier) {
 }
 
 function mutatesRetainedTarball(steps, path) {
-  const escaped = path.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const escaped = `(?:\\./)?${path.replace(/^\.\//u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`;
   return steps.some((step) => {
     const command = step.run ?? "";
     return new RegExp(`(?:>|>>)\\s*["']?${escaped}/[^\\n]*\\.tgz`, "u").test(command)
@@ -181,7 +204,6 @@ function checkPublishBoundary(path, workflow, protectedName) {
     failures.push(`${path} job ${protectedName} rebuilds or runs repository code.`);
   }
   if (!isPublishCommand(commands)) failures.push(`${path} job ${protectedName} has no npm publication command.`);
-  else if (!publishesDownloadedArtifact(job)) failures.push(`${path} job ${protectedName} is not bound to publishing a tarball under its retained-artifact path.`);
   if (!commands.includes("--provenance")) failures.push(`${path} job ${protectedName} does not require provenance.`);
   if (!commands.includes("--ignore-scripts")) failures.push(`${path} job ${protectedName} does not disable package scripts.`);
   if (actionSteps(job, "actions/download-artifact").length === 0) {
@@ -466,6 +488,10 @@ export function evaluateReleaseWorkflows(workflows, profile) {
     }
   }
 
+  const publicationStatus = protectedNames.length === 1 ? retainedPublicationStatus(jobs[protectedNames[0]]) : "FAILED";
+  const publicationEvidence = publicationStatus === "UNVERIFIED"
+    ? "publication target syntax is not supported by structural analysis; retained-artifact binding needs verification"
+    : publicationStatus === "FAILED" ? "publication escapes or replaces the retained artifact" : "";
   const handoffFailures = protectedNames.length === 1 ? checkArtifactHandoff(candidate.path, candidate.workflow, protectedNames[0]) : [];
   const releaseFailures = protectedNames.length === 1 ? checkReleaseReconciliation(candidate.path, candidate.workflow, protectedNames[0]) : [];
   return [
@@ -476,7 +502,7 @@ export function evaluateReleaseWorkflows(workflows, profile) {
         ? `${candidate.path} binds successful push CI and input-free retained-candidate discovery`
         : `${candidate.path} accepts only a version and derives successful current-main CI plus the retained candidate`),
     ),
-    result(boundaryFailures.length ? "FAILED" : "PROVEN", "release-publish-boundary", boundaryFailures.join(" ") || `${candidate.path} keeps publication inert and least-privileged`),
+    result(boundaryFailures.length ? "FAILED" : publicationStatus, "release-publish-boundary", boundaryFailures.join(" ") || publicationEvidence || `${candidate.path} keeps publication inert and least-privileged`),
     result(handoffFailures.length ? "FAILED" : "PROVEN", "release-artifact-handoff", handoffFailures.join(" ") || `${candidate.path} binds protected publication to an unprivileged retained artifact`),
     result(releaseFailures.length ? "FAILED" : "PROVEN", "release-history-reconciliation", releaseFailures.join(" ") || `${candidate.path} creates or repairs public history from the same artifact`),
   ];
