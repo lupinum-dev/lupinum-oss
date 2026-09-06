@@ -123,6 +123,27 @@ const assertStatus = (state, id, status) => assert.equal(
   dependencyChecks(state).find((check) => check.id === `dependency-${id}`)?.status, status, id,
 );
 assert.ok(dependencyChecks(dependencyState).every((check) => check.status === "proven"));
+const directWorkflow = workflowSource.replaceAll(/pnpm (?:check:dependencies|release:verify)/gu,
+  "node scripts/check-dependency-policy.mjs");
+assert.ok(dependencyChecks(changedSource(".github/workflows/ci.yml", directWorkflow))
+  .every((check) => check.status === "proven"));
+for (const replacement of [
+  "echo node scripts/check-dependency-policy.mjs",
+  "node scripts/check-dependency-policy.mjs || true",
+  "node scripts/check-dependency-policy.mjs other-workspace.yaml",
+  "node scripts/check-dependency-policy.mjs\n        continue-on-error: true",
+  "node scripts/check-dependency-policy.mjs\n        working-directory: docs",
+  "node scripts/check-dependency-policy.mjs\n        shell: python",
+  "node scripts/check-dependency-policy.mjs\n        env:\n          NODE_OPTIONS: --require=./bypass.mjs",
+]) {
+  const state = changedSource(".github/workflows/ci.yml", directWorkflow.replaceAll(
+    "node scripts/check-dependency-policy.mjs", replacement,
+  ));
+  for (const event of ["pull_request", "push", "schedule"]) {
+    assert.notEqual(dependencyChecks(state).find((check) => check.id === `dependency-${event}-wiring`).status,
+      "proven", replacement);
+  }
+}
 assert.ok(dependencyChecks(changedSource(".github/workflows/ci.yml", workflowSource
   .replaceAll("github.event.schedule == '23 4 * * *'", "github.event_name == 'schedule'")
   .replaceAll("github.event.schedule != '23 4 * * *'", "github.event_name != 'schedule'")
