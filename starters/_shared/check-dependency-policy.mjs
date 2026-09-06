@@ -1,5 +1,5 @@
 import { readFile, realpath } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, URL } from "node:url";
 import { isMap, isScalar, isSeq, parseDocument } from "yaml";
 
 // Metadata stays on the install exclusion itself, not in a second inventory.
