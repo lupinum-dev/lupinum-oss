@@ -184,7 +184,8 @@ function workflowGate(workflow, event, cron, scripts, defaultBranch) {
       const applies = conditionApplies(step.if, event, cron);
       if (applies === false) continue;
       const invocation = /^pnpm (?:run )?(check:dependencies|verify|release:verify)$/u.exec(step.run ?? "");
-      if (!invocation) {
+      const directChecker = step.run === "node scripts/check-dependency-policy.mjs";
+      if (!invocation && !directChecker) {
         // Unknown wrappers may invoke the policy. Do not infer their behavior from text.
         if (step.run && !/^(?:corepack enable|pnpm install(?: --[\w-]+)*|pnpm (?:test|audit:all))$/u.test(step.run)) uncertain = true;
         continue;
@@ -194,7 +195,7 @@ function workflowGate(workflow, event, cron, scripts, defaultBranch) {
         uncertain = true;
         continue;
       }
-      const status = scriptGate(scripts, invocation[1]);
+      const status = directChecker ? "proven" : scriptGate(scripts, invocation[1]);
       if (status === "proven") return "proven";
       if (status === "unverified") uncertain = true;
     }
