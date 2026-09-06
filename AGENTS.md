@@ -37,6 +37,9 @@ Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged rele
 - Do not add `NPM_TOKEN`.
 - Do not add a central publication service or shared runtime package.
 - Keep starter publication workflows local and reviewable.
+- Maintain the dependency policy checker once in
+  `starters/_shared/check-dependency-policy.mjs`. Run `pnpm shared:sync` and
+  commit the repository-owned root and starter copies.
 - Maintain the on-demand Vercel preview workflow once in
   `starters/_shared/vercel-preview.yml`. Run `pnpm shared:sync` after changes
   and commit the exact repository-owned copies.

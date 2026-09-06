@@ -17,6 +17,7 @@
   "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
   "publishConfig": { "access": "public" },
   "scripts": {
+    "check:dependencies": "node scripts/check-dependency-policy.mjs",
     "audit:all": "pnpm audit",
     "build": "tsup src/index.ts --format esm --dts --clean",
     "docs:build": "pnpm --dir docs build",
@@ -29,7 +30,7 @@
     "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release && node scripts/verify-packed-consumer.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:build"
+    "verify": "pnpm check:dependencies && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:build"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
