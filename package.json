@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "pnpm docs:dev",
+    "build": "pnpm docs:build",
     "audit:all": "pnpm audit",
     "check:standard": "node scripts/check-standard.mjs",
     "docs:build": "node scripts/clean-docs-output.mjs && pnpm --dir docs build && node scripts/verify-docs-output.mjs",

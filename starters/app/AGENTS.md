@@ -1,5 +1,7 @@
 # Working on {{TITLE}}
 
+{{DESCRIPTION}}
+
 ## Architecture
 
 - `app/` owns the Nuxt application and user interface.
@@ -7,9 +9,16 @@
 - `test/` verifies application invariants.
 - This repository deploys an application. It does not publish an npm package.
 
-## Commands
+## Working procedure
 
-Run `pnpm verify` before handoff. Use `pnpm docs:build` to run the production build. Use `pnpm audit:all` for the complete audit. `pnpm release:verify` is the deployment handoff gate.
+Read [MAINTAINING.md](MAINTAINING.md) for setup, commands, authority, and recovery.
+Inspect existing work and define observable acceptance criteria. Make the smallest
+complete change. Run focused checks, explore user-facing changes in a real browser,
+and run `pnpm verify` before handoff. Obtain review, complete the authorized merge,
+verify the result, and clean up only your own processes and disposable files.
+
+Keep versions, exports, and command definitions in package manifests. Update
+instructions with behavior; remove the obsolete instructions in the same change.
 
 ## Invariants
 

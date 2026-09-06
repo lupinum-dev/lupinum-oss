@@ -2,7 +2,22 @@
 
 ## Daily changes
 
-Create a focused branch, make the smallest complete change, run `pnpm verify`, and open a pull request. Review the documentation preview when public content changes.
+An assigned maintenance task includes setup, diagnosis, implementation, review,
+routine pull requests, protected merge, post-merge checks, and cleanup. Keep
+scope bounded, preserve public contracts, and require independent review for
+meaningful code, CI, and dependency changes. Changes to security or delegation
+need explicit policy approval; a patch cannot authorize itself.
+
+Install with `corepack enable pnpm` and `pnpm install --frozen-lockfile`.
+Start `pnpm dev` and use the URL printed by Nuxt. Explore standards navigation,
+search, and the changed page on desktop and a narrow screen. Stop only the
+processes you started.
+
+`pnpm build` builds and validates the handbook site. `pnpm verify` is the full
+local gate, including dependency, policy, starter, and documentation checks.
+GitHub's starter smoke separately installs and verifies generated repositories
+on Linux. Read those results before merging a starter change. Review the actual
+documentation preview when public content changes.
 
 ## Standard changes
 
@@ -22,7 +37,8 @@ Run `pnpm fleet:release-audit` for release conformance. It derives package and
 workflow inventories from each repository, reads GitHub and npm without
 mutation, and separates failed, unverified, and human-only evidence.
 
-For a Lazy Maintainer release, review the version pull request. After merge,
+Routine library version pull requests may be independently reviewed and merged
+by agents. Retain the final protected npm approval. After merge,
 start the Core workflow with the reviewed version when required, review its
 summary, and approve the protected `npm` environment. Automatic Reconciliation
 starts without input. Both paths derive every other release value and reuse the

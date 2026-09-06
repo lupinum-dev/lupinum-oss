@@ -67,7 +67,8 @@ for (const profile of profiles) {
   if (manifest.devDependencies?.yaml !== "2.9.0") {
     failures.push(`${profile} must declare the workflow parser directly`);
   }
-  for (const command of ["verify", "docs:build", "audit:all", "release:verify"]) {
+  const commands = ["dev", "build", "verify", "audit:all", ...(profile === "app" ? [] : ["docs:build", "release:verify"])];
+  for (const command of commands) {
     if (!manifest.scripts?.[command]) failures.push(`${profile} is missing command ${command}`);
   }
   const workspace = await readFile(new URL("pnpm-workspace.yaml", base), "utf8");

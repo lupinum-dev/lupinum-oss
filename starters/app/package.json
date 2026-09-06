@@ -9,13 +9,11 @@
     "audit:all": "pnpm audit",
     "build": "nuxt build",
     "dev": "nuxt dev",
-    "docs:build": "pnpm build",
     "lint": "eslint .",
     "prepare": "nuxt prepare",
-    "release:verify": "pnpm audit:all && pnpm verify",
     "test": "vitest run",
     "typecheck": "nuxt typecheck",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm audit:all && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
     "@nuxt/scripts": "^1.3.3",
