@@ -19,6 +19,12 @@ GitHub's starter smoke separately installs and verifies generated repositories
 on Linux. Read those results before merging a starter change. Review the actual
 documentation preview when public content changes.
 
+For fixed-set release preparation changes, run
+`node scripts/test-fixed-release.mjs /path/to/installed/generated-monorepo`.
+It uses a disposable copy to test rejected preparation, two prereleases, stable
+preparation, and packed consumers. Starter smoke runs this trial on Linux.
+It does not publish or create release tags.
+
 ## Standard changes
 
 Open an issue first. State the proven problem, the repositories affected, the proposed rule, and the migration cost. Update the handbook before or with starter behavior. Do not silently rewrite existing repositories.

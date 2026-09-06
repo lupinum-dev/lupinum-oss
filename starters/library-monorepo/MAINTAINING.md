@@ -71,7 +71,23 @@ Download every exact tarball from the successful main CI release-candidate artif
 
 ## Normal release
 
-Run `pnpm release:prepare -- --version <version>` to update all package versions and `CHANGELOG.md` in one pull request. Merge only after `pnpm release:verify` and CI pass. Dispatch `publish.yml` from current `main` with the reviewed fixed version. The workflow derives every other value from the retained package set, requests npm approval only for absent packages, and reconciles one GitHub release.
+Commit reviewed Changesets, then run `pnpm release:prepare` from a clean worktree.
+Changesets derives one version for the complete fixed group. Changelogen creates
+the root release notes without changing versions. Review package manifests,
+`CHANGELOG.md`, the Changesets state, and the lockfile together. Commit this version
+preparation before running `pnpm release:verify`, so certification records its
+source commit. A failed preparation must be inspected before retrying; do not
+discard unrelated changes.
+
+To start a prerelease series, run `pnpm changeset pre enter beta` and commit the
+state before preparation. Add a new Changeset for each later candidate. To prepare
+the stable version, run `pnpm changeset pre exit`, commit the state, then run
+`pnpm release:prepare`. Prerelease versions use npm `next`; stable versions use
+`latest`. Changesets manages versions only. Do not run `changeset publish`.
+
+Merge only after certification and CI pass. Dispatch `publish.yml` from current
+`main` with the reviewed fixed version. It consumes the retained package set,
+requests npm approval only for absent packages, and reconciles one GitHub release.
 
 ## Rollback
 

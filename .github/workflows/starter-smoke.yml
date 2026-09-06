@@ -104,6 +104,9 @@ jobs:
         if: matrix.profile == 'app'
         working-directory: ${{ runner.temp }}/generated
         run: pnpm verify
+      - name: Exercise fixed-set prerelease and stable preparation
+        if: matrix.profile == 'library-monorepo'
+        run: node scripts/test-fixed-release.mjs "${{ runner.temp }}/generated"
 
   gate:
     name: Starter smoke

@@ -23,6 +23,7 @@ instructions with behavior; remove the obsolete instructions in the same change.
 ## Invariants
 
 - Keep all public packages on one fixed version.
+- Changesets owns package versions. Changelogen generates release notes only.
 - Do not bypass package boundaries with private source imports.
 - Do not publish from a workstation after the first npm bootstrap.
 - Do not add `NPM_TOKEN` or rename `publish.yml` without migrating all trusted publishers.

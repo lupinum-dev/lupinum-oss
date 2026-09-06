@@ -7,6 +7,7 @@
   "scripts": {
     "check:dependencies": "node scripts/check-dependency-policy.mjs",
     "audit:all": "pnpm audit",
+    "changeset": "changeset",
     "build": "pnpm --filter './packages/*' -r build",
     "docs:build": "pnpm build && pnpm --dir docs build",
     "dev": "pnpm build && pnpm docs:dev",
@@ -21,6 +22,7 @@
     "verify": "pnpm check:dependencies && pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm --dir docs build"
   },
   "devDependencies": {
+    "@changesets/cli": "2.31.0",
     "@eslint/js": "10.0.1",
     "@types/node": "26.1.1",
     "changelogen": "0.6.2",
