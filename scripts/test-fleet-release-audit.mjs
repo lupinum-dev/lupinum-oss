@@ -241,6 +241,20 @@ const manualWorkflow = validWorkflow
 const manualWorkflowChecks = workflowChecks(manualWorkflow);
 assert.equal(check(manualWorkflowChecks, "release-workflow-trigger").status, "PROVEN", "A version-only dispatch may derive exact current-main CI and its retained artifact.");
 assert.ok(manualWorkflowChecks.every((item) => item.status === "PROVEN"), "Valid manual Core workflow failed.");
+assert.equal(
+  check(workflowChecks(manualWorkflow.replace("Invalid release version", "Invalid version")), "release-workflow-trigger").status,
+  "PROVEN",
+  "Validation does not depend on the error message.",
+);
+for (const [label, source] of [
+  ["message without validation", manualWorkflow.replace(/if \(!\/[^\n]+?throw new Error/u, "console.log")],
+  ["different variable", manualWorkflow.replace("process.env.RELEASE_VERSION", "process.env.OTHER_VERSION")],
+  ["permissive expression", manualWorkflow.replace(/\^\\d\+[^\n]+?\$\/\.test/u, ".*/.test")],
+  ["non-failing guard", manualWorkflow.replace("throw new Error", "console.log")],
+]) {
+  assert.notEqual(source, manualWorkflow, `${label} fixture must alter the workflow.`);
+  assert.equal(check(workflowChecks(source), "release-workflow-trigger").status, "FAILED", `Reject ${label}.`);
+}
 for (const unsafeInput of ["run_id", "source_sha", "tag", "channel", "target", "package", "allow_bootstrap"]) {
   const unsafeManual = manualWorkflow.replace(
     "      version: { required: true, type: string }\n",
@@ -300,6 +314,37 @@ assert.equal(
   "PROVEN",
   "An exact matching-refs lookup must remain valid tag readback evidence.",
 );
+
+const dispatchSourceTagReadback = validWorkflow
+  .replace("SOURCE_SHA=abcdef0123456789abcdef0123456789abcdef01", `test "$(node -p "require('./candidate/release.json').sourceSha")" = "$GITHUB_SHA"`)
+  .replaceAll("SOURCE_SHA", "GITHUB_SHA");
+assert.equal(
+  check(workflowChecks(dispatchSourceTagReadback), "release-history-reconciliation").status,
+  "PROVEN",
+  "A retained manifest may bind tag creation and readback to the dispatch commit.",
+);
+for (const [label, before, after] of [
+  ["missing manifest comparison", `test "$(node -p "require('./candidate/release.json').sourceSha")" = "$GITHUB_SHA"`, "echo retained manifest"],
+  ["absolute manifest path", "./candidate/release.json", "/tmp/release.json"],
+  ["unrelated manifest path", "./candidate/release.json", "other/release.json"],
+  ["manifest outside download directory", "./candidate/release.json", "./release.json"],
+  ["nonblocking manifest comparison", `sourceSha")" = "$GITHUB_SHA"`, `sourceSha")" = "$GITHUB_SHA" || true`],
+  ["different manifest commit", `sourceSha")" = "$GITHUB_SHA"`, `sourceSha")" = "$OTHER_SHA"`],
+  ["different tag target", '-f sha="$GITHUB_SHA"', '-f sha="$OTHER_SHA"'],
+  ["missing tag readback comparison", 'test "$tag_sha" = "$GITHUB_SHA"', 'echo "$GITHUB_SHA"'],
+  ["different tag readback commit", 'test "$tag_sha" = "$GITHUB_SHA"', 'test "$tag_sha" = "$OTHER_SHA"'],
+  ["nonblocking tag comparison", 'test "$tag_sha" = "$GITHUB_SHA"', 'test "$tag_sha" = "$GITHUB_SHA" || true'],
+]) {
+  const source = dispatchSourceTagReadback.replace(before, after);
+  assert.notEqual(source, dispatchSourceTagReadback, `${label} fixture must alter the workflow.`);
+  assert.equal(check(workflowChecks(source), "release-history-reconciliation").status, "FAILED", `Reject ${label}.`);
+}
+const changedDirectoryReadback = dispatchSourceTagReadback
+  .replace(`test "$(node -p "require('./candidate/release.json')`, `cd candidate\n          test "$(node -p "require('./release.json')`);
+assert.equal(check(workflowChecks(changedDirectoryReadback), "release-history-reconciliation").status, "PROVEN", "A literal artifact directory change binds the manifest.");
+const workingDirectoryReadback = changedDirectoryReadback.replace("      - run: |\n          cd candidate", "      - working-directory: candidate\n        run: |");
+assert.notEqual(workingDirectoryReadback, changedDirectoryReadback);
+assert.equal(check(workflowChecks(workingDirectoryReadback), "release-history-reconciliation").status, "PROVEN", "A literal step working directory binds the manifest.");
 
 const boundTemplateVariable = validWorkflow.replace(
   "npm publish candidate/package.tgz --provenance --ignore-scripts",
