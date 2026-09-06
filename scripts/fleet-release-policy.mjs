@@ -597,10 +597,17 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
   const manifestPublished = registry.versions.includes(pkg.version);
   const expectedChannel = /-/u.test(pkg.version) ? "next" : "latest";
   const manifestChannel = registry.tags[expectedChannel];
+  const retainedCandidate = releaseState[pkg.version]?.retainedCandidate;
   checks.push(result(
-    !manifestPublished ? "UNVERIFIED" : manifestChannel === pkg.version ? "PROVEN" : "FAILED",
+    !manifestPublished
+      ? retainedCandidate?.present === true ? "HUMAN-ONLY" : "UNVERIFIED"
+      : manifestChannel === pkg.version ? "PROVEN" : "FAILED",
     `npm:${pkg.name}@${pkg.version}:manifest-channel`,
-    !manifestPublished ? `manifest version is not published; retained candidate evidence is required` : `${expectedChannel}=${manifestChannel ?? "absent"}; expected=${pkg.version}`,
+    !manifestPublished
+      ? retainedCandidate?.present === true
+        ? `unpublished; ${retainedCandidate.evidence}; protected npm approval is required to publish`
+        : "manifest version is not published and no retained current-main candidate was found"
+      : `${expectedChannel}=${manifestChannel ?? "absent"}; expected=${pkg.version}`,
   ));
 
   const auditedVersions = registry.relevantVersions ?? [pkg.version, latest, next].filter((version) => version && registry.versions.includes(version));
@@ -753,14 +760,16 @@ export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packa
   else if (blockingFailed.length) state = "BLOCKED";
   else if (historicalTag || reconcile.length) state = "PARTIAL FAILURE";
   else if (profile === "none") state = "NO RELEASE";
-  else if (currentPublished.some((published) => !published)) state = "BLOCKED";
+  else if (currentPublished.some((published) => !published)) state = "AWAITING APPROVAL";
   else state = "COMPLETE";
   if (!releaseStates.has(state)) throw new Error(`Unknown release state: ${state}`);
 
   const actionable = firstActionable(checks);
   const nextAction = state === "PARTIAL FAILURE"
     ? historicalTag?.nextAction ?? "Run the repository's input-free reconcile workflow."
-    : state === "BLOCKED"
+    : state === "AWAITING APPROVAL"
+      ? "Approve the protected npm environment when this release should publish."
+      : state === "BLOCKED"
       ? actionable?.status === "UNVERIFIED"
         ? `Restore evidence for ${actionable.id} and rerun the fleet release audit.`
         : actionable
@@ -774,7 +783,7 @@ export function deriveReleaseCard({ repository, profile, sourceSha, ciRun, packa
         : repository);
   const packageLines = packages.map((pkg) => {
     const integrity = registries[pkg.name]?.integrity?.[pkg.version];
-    return `${pkg.name}@${pkg.version} — ${integrity ? `registry integrity ${integrity}` : "candidate digest not observed by fleet audit"}`;
+    return `${pkg.name}@${pkg.version} — ${integrity ? `registry integrity ${integrity}` : "unpublished retained candidate"}`;
   });
   return {
     state,

@@ -638,6 +638,22 @@ const unavailableProvenance = structuredClone(registry);
 unavailableProvenance.provenance["1.0.0"] = null;
 assert.equal(check(evaluateRegistryPackage(packages[0], unavailableProvenance, publicHistory), "npm:@lupinum/one@1.0.0:provenance").status, "UNVERIFIED");
 
+const unpublishedRegistry = structuredClone(registry);
+unpublishedRegistry.tags.next = "1.1.0-beta.1";
+const unpublishedPackage = { ...packages[0], version: "1.1.0-beta.2" };
+const retainedUnpublished = {
+  ...publicHistory,
+  "1.1.0-beta.2": { retainedCandidate: { present: true, evidence: "release-candidate retained by successful CI 42" } },
+};
+assert.equal(
+  check(evaluateRegistryPackage(unpublishedPackage, unpublishedRegistry, retainedUnpublished), "npm:@lupinum/one@1.1.0-beta.2:manifest-channel").status,
+  "HUMAN-ONLY",
+);
+assert.equal(
+  check(evaluateRegistryPackage(unpublishedPackage, unpublishedRegistry, {}), "npm:@lupinum/one@1.1.0-beta.2:manifest-channel").status,
+  "UNVERIFIED",
+);
+
 const staleManifestChannel = structuredClone(registry);
 staleManifestChannel.versions.push("1.1.0-beta.2");
 assert.equal(
@@ -927,8 +943,8 @@ assert.equal((formatReleaseCard(completeCard).match(/^Next action:$/gmu) ?? []).
 const noReleaseCard = deriveReleaseCard({ repository: "lupinum-dev/handbook", profile: "none", sourceSha: "abc", packages: [], checks: completeChecks });
 assert.equal(noReleaseCard.state, "NO RELEASE");
 const certifyingCard = deriveReleaseCard({ repository: "lupinum-dev/one", profile: "single-package", sourceSha: "abc", packages: [{ ...packages[0], version: "2.0.0" }], registries: { [packages[0].name]: registry }, checks: completeChecks });
-assert.equal(certifyingCard.state, "BLOCKED");
-assert.match(certifyingCard.nextAction, /live retained-candidate evidence/u);
+assert.equal(certifyingCard.state, "AWAITING APPROVAL");
+assert.match(certifyingCard.nextAction, /protected npm environment/u);
 const partialCard = deriveReleaseCard({ repository: "lupinum-dev/one", profile: "single-package", sourceSha: "abc", packages: [packages[0]], registries: { [packages[0].name]: registry }, checks: [{ status: "FAILED", id: "npm:@lupinum/one@1.0.0:github-release", evidence: "missing" }] });
 assert.equal(partialCard.state, "BLOCKED");
 assert.match(partialCard.nextAction, /Resolve/u);
