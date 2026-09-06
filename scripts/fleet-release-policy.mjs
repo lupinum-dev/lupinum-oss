@@ -607,30 +607,31 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
   for (const version of new Set(auditedVersions)) {
     const provenance = registry.provenance[version];
     const release = releaseState[version];
+    const bootstrap = (provenance === false || provenance?.present === false) ? release?.bootstrap : undefined;
+    const bootstrapProven = bootstrap?.status === "PROVEN";
     const provenancePresent = provenance === true || provenance?.present === true;
     const provenanceVerified = provenance === true || provenance?.verified === true;
-    const provenanceStatus = provenance == null ? "UNVERIFIED" : provenanceVerified ? "PROVEN" : "FAILED";
-    const provenanceEvidence = provenance == null
+    const provenanceStatus = bootstrap?.status ?? (provenance == null ? "UNVERIFIED" : provenanceVerified ? "PROVEN" : "FAILED");
+    const provenanceEvidence = bootstrap?.evidence ?? (provenance == null
       ? "attestation lookup unavailable"
       : provenanceVerified
         ? provenance === true ? "attestation present" : `source-bound attestation: ${provenance.evidence}`
-        : provenancePresent ? provenance.evidence ?? "attestation could not be source-bound" : "attestation missing after the fleet enforcement cutoff";
+        : provenancePresent ? provenance.evidence ?? "attestation could not be source-bound" : "attestation missing after the fleet enforcement cutoff");
     checks.push(result(provenanceStatus, `npm:${pkg.name}@${version}:provenance`, provenanceEvidence));
-    const bytesSourceProven = provenance?.verified === true
-      && typeof provenance.sourceCommit === "string"
+    const bytesSourceProven = ((provenance?.verified === true && typeof provenance.sourceCommit === "string") || bootstrapProven)
       && typeof registry.integrity[version] === "string";
     checks.push(result(
-      bytesSourceProven ? "PROVEN" : provenance == null ? "UNVERIFIED" : "FAILED",
+      bytesSourceProven ? "PROVEN" : bootstrap?.status ?? (provenance == null ? "UNVERIFIED" : "FAILED"),
       `npm:${pkg.name}@${version}:bytes-source`,
       bytesSourceProven
-        ? `${registry.integrity[version]} is bound by SLSA provenance to ${provenance.sourceCommit}`
+        ? bootstrapProven ? bootstrap.evidence : `${registry.integrity[version]} is bound by SLSA provenance to ${provenance.sourceCommit}`
         : "registry bytes are not bound to an exact source commit",
     ));
 
     const expected = expectedTags(profile, pkg, version);
     const expectedTag = expected[0];
     const retained = release?.retainedCandidate;
-    const recoveryEvidenceProven = bytesSourceProven
+    const recoveryEvidenceProven = provenance?.verified === true && bytesSourceProven
       && retained?.present === true
       && Boolean(release?.changelog)
       && typeof release?.repository === "string";
@@ -649,15 +650,15 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
     const tagAligned = release?.tag && typeof release.sourceCommit === "string" && release.tagTarget === release.sourceCommit;
     if (tagAligned) {
       checks.push(result(
-        provenance?.verified === true ? "PROVEN" : "UNVERIFIED",
+        bytesSourceProven ? "PROVEN" : "UNVERIFIED",
         `npm:${pkg.name}@${version}:tag`,
-        `${release.tag} -> ${release.tagTarget}; provenance source ${release.sourceCommit}`,
+        `${release.tag} -> ${release.tagTarget}; certified source ${release.sourceCommit}`,
       ));
     } else if (release?.tag) {
       checks.push(result(
-        "FAILED",
+        typeof release.sourceCommit === "string" ? "FAILED" : "UNVERIFIED",
         `npm:${pkg.name}@${version}:tag`,
-        `${release.tag} targets ${release.tagTarget ?? "unknown"}; provenance source ${release.sourceCommit ?? "unknown"}`,
+        `${release.tag} targets ${release.tagTarget ?? "unknown"}; certified source ${release.sourceCommit ?? "unknown"}`,
       ));
     } else if (recoveryEvidenceProven && historicalSource) {
       const command = `gh api --method POST repos/${release.repository}/git/refs -f ref=refs/tags/${expectedTag} -f sha=${release.sourceCommit}`;
@@ -688,7 +689,7 @@ export function evaluateRegistryPackage(pkg, registry, releaseState, profile = "
     const readableAssets = releaseAssets.filter((asset) => typeof asset.integrity === "string");
     if (matchingAsset) {
       checks.push(result(
-        provenance?.verified === true ? "PROVEN" : "UNVERIFIED",
+        bytesSourceProven ? "PROVEN" : "UNVERIFIED",
         `npm:${pkg.name}@${version}:github-release`,
         `${release.release} contains ${matchingAsset.name} with registry integrity ${expectedIntegrity}`,
       ));

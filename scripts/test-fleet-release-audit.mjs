@@ -13,7 +13,7 @@ import {
   expectedTags,
   formatReleaseCard,
 } from "./fleet-release-policy.mjs";
-import { assetIntegrity, changelogForPackage, evaluateVerifiedProvenanceStatement, headingContainsVersion, releaseCandidateArtifactNames, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
+import { assetIntegrity, bootstrapState, changelogForPackage, evaluateVerifiedProvenanceStatement, firstRegistryVersion, headingContainsVersion, releaseCandidateArtifactNames, verifyBootstrapBytes, verifyProvenanceDocument } from "./audit-fleet-release.mjs";
 
 const action = "0123456789abcdef0123456789abcdef01234567";
 const packages = [{ name: "@lupinum/one", version: "1.0.0" }, { name: "@lupinum/two", version: "1.0.0" }];
@@ -673,6 +673,71 @@ assert.notEqual(
   "PROVEN",
   "A tag without verified source provenance must not be proven.",
 );
+
+const bootstrapBytes = Buffer.from("first certified package");
+const bootstrapManifest = {
+  sourceSha: provenanceSha,
+  packages: [{ name: packages[0].name, version: "1.0.0", filename: "package.tgz",
+    sha256: createHash("sha256").update(bootstrapBytes).digest("hex"),
+    shasum: createHash("sha1").update(bootstrapBytes).digest("hex") }],
+};
+const bootstrapInput = { pkg: packages[0], version: "1.0.0", firstVersion: "1.0.0", manifest: bootstrapManifest,
+  retainedManifest: structuredClone(bootstrapManifest), bytes: bootstrapBytes, sourceCommit: provenanceSha,
+  integrity: `sha512-${createHash("sha512").update(bootstrapBytes).digest("base64")}` };
+const bootstrapProof = verifyBootstrapBytes(bootstrapInput);
+assert.equal(bootstrapProof.status, "PROVEN");
+assert.match(bootstrapProof.evidence, /no OIDC provenance/u);
+assert.equal(firstRegistryVersion(["1.1.0", "1.0.0"], { "1.0.0": "2026-08-01", "1.1.0": "2026-08-02" }), "1.0.0");
+assert.equal(firstRegistryVersion(["1.1.0"], { "1.0.0": "2026-08-01", "1.1.0": "2026-08-02", modified: "2026-08-03" }), "1.0.0", "An earlier recorded publication cannot disappear from bootstrap analysis.");
+assert.equal(firstRegistryVersion(["1.0.0", "1.1.0"], { "1.0.0": "2026-08-01", "1.1.0": "2026-08-01" }), undefined, "Tied dates do not prove one first version.");
+assert.equal(firstRegistryVersion(["1.0.0", "1.1.0"], { "1.0.0": "2026-08-01" }), undefined, "Missing dates do not prove one first version.");
+const bootstrapRelease = { body: "> Bootstrap packages: @lupinum/one", assets: [{ name: "release.json", url: "https://example.invalid/release.json" }] };
+const bootstrapMetadata = { firstVersion: "1.0.0" };
+assert.equal(await bootstrapState({}, packages[0], "1.0.0", bootstrapMetadata, { ...bootstrapRelease, body: "" }), undefined, "Absent notice cannot grant a bootstrap exception.");
+assert.equal(await bootstrapState({}, packages[0], "1.0.0", bootstrapMetadata, { ...bootstrapRelease, body: "> Bootstrap packages: @lupinum/other" }), undefined, "A notice for another package cannot grant an exception.");
+assert.equal((await bootstrapState({}, packages[0], "1.1.0", bootstrapMetadata, bootstrapRelease)).status, "FAILED", "A later version cannot use a bootstrap notice.");
+const expiredBootstrap = await bootstrapState({ retainedCandidateCache: new Map([[provenanceSha, { present: false, evidence: "source CI artifact expired" }]]) },
+  packages[0], "1.0.0", bootstrapMetadata, bootstrapRelease, async () => Response.json(bootstrapManifest));
+assert.equal(expiredBootstrap.status, "UNVERIFIED");
+assert.match(expiredBootstrap.evidence, /expired/u);
+for (const [label, changes, status] of [
+  ["later version", { firstVersion: "0.9.0" }, "FAILED"],
+  ["unknown first version", { firstVersion: undefined }, "UNVERIFIED"],
+  ["wrong source", { sourceCommit: "a".repeat(40) }, "FAILED"],
+  ["changed manifest", { retainedManifest: {} }, "FAILED"],
+  ["wrong bytes", { bytes: Buffer.from("replacement") }, "FAILED"],
+  ["unavailable bytes", { bytes: undefined }, "UNVERIFIED"],
+  ["wrong registry integrity", { integrity: "sha512-other" }, "FAILED"],
+  ["wrong package", { pkg: { name: "@lupinum/other" } }, "FAILED"],
+]) {
+  assert.equal(verifyBootstrapBytes({ ...bootstrapInput, ...changes }).status, status, label);
+}
+const bootstrapRegistry = structuredClone(noSourceRegistry);
+bootstrapRegistry.integrity["1.0.0"] = bootstrapInput.integrity;
+const bootstrapHistory = structuredClone(publicHistory);
+bootstrapHistory["1.0.0"] = { ...bootstrapHistory["1.0.0"], sourceCommit: provenanceSha, tagTarget: provenanceSha,
+  assetIntegrity: bootstrapInput.integrity, bootstrap: bootstrapProof };
+for (const suffix of ["provenance", "bytes-source", "tag", "github-release"]) {
+  assert.equal(check(evaluateRegistryPackage(packages[0], bootstrapRegistry, bootstrapHistory), `npm:@lupinum/one@1.0.0:${suffix}`).status,
+    "PROVEN", `Certified first-version exception: ${suffix}`);
+}
+const expiredBootstrapHistory = structuredClone(bootstrapHistory);
+expiredBootstrapHistory["1.0.0"].bootstrap = expiredBootstrap;
+expiredBootstrapHistory["1.0.0"].sourceCommit = undefined;
+for (const suffix of ["provenance", "bytes-source", "tag", "github-release"]) {
+  assert.equal(check(evaluateRegistryPackage(packages[0], bootstrapRegistry, expiredBootstrapHistory), `npm:@lupinum/one@1.0.0:${suffix}`).status,
+    "UNVERIFIED", `Expired bootstrap evidence: ${suffix}`);
+}
+const missingBootstrapHistory = structuredClone(bootstrapHistory);
+missingBootstrapHistory["1.0.0"].tag = undefined;
+missingBootstrapHistory["1.0.0"].release = undefined;
+missingBootstrapHistory["1.0.0"].retainedCandidate = { present: true };
+assert.notEqual(check(evaluateRegistryPackage(packages[0], bootstrapRegistry, missingBootstrapHistory), "npm:@lupinum/one@1.0.0:tag").status,
+  "HUMAN-ONLY", "Bootstrap byte evidence must not authorize the separate provenance-based historical recovery command.");
+const invalidAttestationRegistry = structuredClone(bootstrapRegistry);
+invalidAttestationRegistry.provenance["1.0.0"] = { present: true, verified: false };
+assert.equal(check(evaluateRegistryPackage(packages[0], invalidAttestationRegistry, bootstrapHistory), "npm:@lupinum/one@1.0.0:provenance").status,
+  "FAILED", "A bootstrap notice cannot excuse an invalid attestation.");
 
 const wrongAssetHistory = structuredClone(publicHistory);
 wrongAssetHistory["1.0.0"].assetIntegrity = "sha512-wrong";

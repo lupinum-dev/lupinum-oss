@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { verify as verifySigstore } from "sigstore";
@@ -190,6 +192,7 @@ function retainedCandidateForSource(state, sourceCommit) {
         runId: run.id,
         url: run.html_url,
         artifactName: artifact.name,
+        artifactId: artifact.id,
         evidence: `${artifact.name} retained by successful CI ${run.id}`,
       };
       state.retainedCandidateCache.set(sourceCommit, retained);
@@ -286,7 +289,74 @@ async function registryState(pkg, repository, expectedWorkflow, historyCutoff) {
       provenance[version] = null;
     }
   }
-  return { tags, versions, provenance, integrity, relevantVersions: [...relevantVersions], historicalExceptions, historyCutoff };
+  const firstVersion = firstRegistryVersion(versions, metadata.time);
+  return { tags, versions, provenance, integrity, firstVersion, relevantVersions: [...relevantVersions], historicalExceptions, historyCutoff };
+}
+
+export function firstRegistryVersion(versions, time = {}) {
+  // Include any older publication still recorded in npm's time map, even if
+  // that version is no longer in the installable version list.
+  const observed = new Set([...versions, ...Object.keys(time).filter((key) => !["created", "modified"].includes(key))]);
+  const datedVersions = [...observed].map((version) => ({ version, time: Date.parse(time[version]) }));
+  const ordered = datedVersions.toSorted((a, b) => a.time - b.time);
+  return ordered.length && ordered.every((entry) => Number.isFinite(entry.time))
+    && (ordered.length === 1 || ordered[0].time < ordered[1].time) ? ordered[0].version : undefined;
+}
+
+export function verifyBootstrapBytes({ pkg, version, firstVersion, manifest, retainedManifest, bytes, sourceCommit, integrity }) {
+  const failed = (evidence) => ({ status: "FAILED", evidence });
+  if (!firstVersion) return { status: "UNVERIFIED", evidence: "registry publication times do not establish one first version" };
+  if (version !== firstVersion) return failed("bootstrap exception cannot apply to a later package version");
+  if (!/^[0-9a-f]{40}$/u.test(sourceCommit ?? "") || manifest?.sourceSha !== sourceCommit
+    || !isDeepStrictEqual(manifest, retainedManifest)) return failed("bootstrap manifest differs from the retained source CI manifest");
+  const records = manifest.packages?.filter((record) => record.name === pkg.name && record.version === version) ?? [];
+  if (records.length !== 1) return failed("bootstrap manifest must contain one matching package record");
+  const record = records[0];
+  if (!/^[A-Za-z0-9._-]+\.tgz$/u.test(record.filename ?? "")) return failed("bootstrap tarball filename is unsafe");
+  if (!Buffer.isBuffer(bytes) || typeof integrity !== "string") return { status: "UNVERIFIED", evidence: "bootstrap CI bytes or registry integrity are unavailable" };
+  const sha512 = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+  if (sha512 !== integrity || createHash("sha256").update(bytes).digest("hex") !== record.sha256
+    || createHash("sha1").update(bytes).digest("hex") !== record.shasum) return failed("bootstrap CI tarball differs from its manifest or npm bytes");
+  return { status: "PROVEN", sourceCommit, evidence: `recorded bootstrap at the earliest available registry version; retained CI bytes match npm at ${sourceCommit}; no OIDC provenance` };
+}
+
+export async function bootstrapState(state, pkg, version, registry, release, fetchManifest = fetch) {
+  const declared = release?.body.match(/^> Bootstrap packages:\s*(.+)$/mu)?.[1].split(",").map((name) => name.trim()) ?? [];
+  if (!declared.includes(pkg.name)) return undefined;
+  if (!registry.firstVersion) return { status: "UNVERIFIED", evidence: "registry publication times do not establish one first version" };
+  if (registry.firstVersion && registry.firstVersion !== version) return { status: "FAILED", evidence: "bootstrap notice refers to a later package version" };
+  const directory = await mkdtemp(resolve(tmpdir(), "lupinum-bootstrap-"));
+  try {
+    const asset = release.assets.find((asset) => asset.name === "release.json");
+    if (!asset) return { status: "UNVERIFIED", evidence: "bootstrap release has no supported release.json manifest" };
+    const response = await fetchManifest(asset.url, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`release manifest lookup failed: HTTP ${response.status}`);
+    const manifest = await response.json();
+    const sourceCommit = manifest.sourceSha;
+    const retained = retainedCandidateForSource(state, sourceCommit);
+    if (!retained.present) return { status: "UNVERIFIED", evidence: retained.evidence };
+    const records = manifest.packages?.filter((record) => record.name === pkg.name && record.version === version) ?? [];
+    if (records.length !== 1 || !/^[A-Za-z0-9._-]+\.tgz$/u.test(records[0].filename ?? "")) {
+      return { status: "FAILED", evidence: "bootstrap manifest has no unique safe package filename" };
+    }
+    const archive = spawnSync("gh", ["api", `repos/${state.metadata.full_name}/actions/artifacts/${retained.artifactId}/zip`], { maxBuffer: 128 * 1024 * 1024, timeout: 60000 });
+    if (archive.status !== 0) throw new Error("retained bootstrap CI archive could not be downloaded");
+    const archivePath = resolve(directory, "candidate.zip");
+    await writeFile(archivePath, archive.stdout);
+    // Read exact members without extracting or executing archive content.
+    const member = (name) => {
+      const output = spawnSync("unzip", ["-p", archivePath, name], { maxBuffer: 128 * 1024 * 1024, timeout: 15000 });
+      if (output.status !== 0) throw new Error(`retained bootstrap archive member ${name} is unavailable`);
+      return output.stdout;
+    };
+    const proof = verifyBootstrapBytes({ pkg, version, firstVersion: registry.firstVersion, manifest,
+      retainedManifest: JSON.parse(member("release.json").toString("utf8")), bytes: member(records[0].filename), sourceCommit, integrity: registry.integrity[version] });
+    return { ...proof, evidence: `${proof.evidence}; source CI ${retained.url}` };
+  } catch (error) {
+    return { status: "UNVERIFIED", evidence: error.message };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 export function headingContainsVersion(source, pkg, version, profile) {
@@ -337,7 +407,9 @@ async function releaseState(state, pkg, versions, profile, registry) {
     const assets = await Promise.all((release?.assets ?? [])
       .filter((entry) => entry.name.endsWith(".tgz"))
       .map(async (entry) => ({ name: entry.name, integrity: await assetIntegrity(entry) })));
-    const sourceCommit = typeof registry.provenance[version] === "object" ? registry.provenance[version]?.sourceCommit : undefined;
+    const provenance = registry.provenance[version];
+    const bootstrap = (provenance === false || provenance?.present === false) ? await bootstrapState(state, pkg, version, registry, release) : undefined;
+    const sourceCommit = provenance?.verified === true ? provenance.sourceCommit : bootstrap?.status === "PROVEN" ? bootstrap.sourceCommit : undefined;
     return [version, {
       tag: tag?.name,
       tagTarget: tag?.targetSha,
@@ -345,6 +417,7 @@ async function releaseState(state, pkg, versions, profile, registry) {
       prerelease: release?.prerelease,
       changelog: changelog ? `${changelog.path} has the exact ${version} heading` : undefined,
       sourceCommit,
+      bootstrap,
       currentMainSha: state.sha,
       repository: state.metadata.full_name,
       retainedCandidate: retainedCandidateForSource(state, sourceCommit),
