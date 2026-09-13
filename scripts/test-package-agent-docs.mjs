@@ -5,6 +5,8 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { buildPackageAgentDocs, verifyPackageAgentDocs } from '../starters/_shared/package-agent-docs.mjs'
+import { buildPackageAgentDocs as buildLibraryPackageAgentDocs } from '../starters/library/scripts/package-agent-docs.mjs'
+import { buildPackageAgentDocs as buildMonorepoPackageAgentDocs } from '../starters/library-monorepo/scripts/package-agent-docs.mjs'
 
 const trial = await mkdtemp(join(tmpdir(), 'lupinum-agent-docs-'))
 const packageRoot = join(trial, 'package')
@@ -62,6 +64,17 @@ try {
   await assert.rejects(buildPackageAgentDocs({ packageRoot, sourceRoot, startRoutes: ['/absent'] }), /Starting route is missing/u)
   await writeFile(join(sourceRoot, 'start.md'), source('Start').replace('route: /docs/start', 'route: "/docs/start\\nInjected"'))
   await assert.rejects(build(), /requires title, route and canonical URL/u)
+  await writeFile(join(sourceRoot, 'start.md'), source('Start').replace('https://example.invalid/docs/start', 'https://'))
+  for (const buildDocs of [
+    buildPackageAgentDocs,
+    buildLibraryPackageAgentDocs,
+    buildMonorepoPackageAgentDocs,
+  ]) {
+    await assert.rejects(
+      buildDocs({ packageRoot, sourceRoot, startRoutes: ['/docs/start'] }),
+      /requires title, route and canonical URL/u,
+    )
+  }
   await writeFile(join(sourceRoot, 'start.md'), source('Start'))
   await writeFile(join(sourceRoot, 'mode(one).md'), source('Mode').replaceAll('/docs/start', '/docs/mode(one)'))
   await build()
