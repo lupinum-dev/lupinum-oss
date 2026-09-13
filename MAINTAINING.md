@@ -56,6 +56,13 @@ lifecycle scripts, environment variables, or CLI overrides preserve the policy.
 Run `pnpm fleet:release-audit` for release conformance. It derives package and
 workflow inventories from each repository, reads GitHub and npm without
 mutation, and separates failed, unverified, and human-only evidence.
+For retained publication paths, it recognizes literal workflow, job, or step
+working directories and an unconditional first standalone `cd` command.
+Additional or conditional directory changes, nonempty configured `CDPATH`,
+subprocess directory overrides, and expanded or variable publication targets
+remain unverified. The audit does not evaluate arbitrary shell or JavaScript
+data flow. Relative
+writes to tarballs inside the downloaded directory remain failures.
 
 Routine library version pull requests may be independently reviewed and merged
 by agents. Retain the final protected npm approval. After merge,

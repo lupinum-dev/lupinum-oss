@@ -285,13 +285,13 @@ const templatedTarballPublish = validWorkflow.replace(
 );
 assert.equal(
   check(workflowChecks(templatedTarballPublish), "release-publish-boundary").status,
-  "PROVEN",
-  "A validated manifest tarball beneath the downloaded artifact path must remain bound to retained bytes.",
+  "UNVERIFIED",
+  "A dynamic manifest path needs data-flow review, even beneath a literal prefix.",
 );
 
-const attestationFetch = templatedTarballPublish.replace(
-  "const manifest={tarball:'package.tgz'};",
-  "const manifest={tarball:'package.tgz'}; await fetch('https://registry.npmjs.org/-/npm/v1/attestations/example');",
+const attestationFetch = validWorkflow.replace(
+  "npm publish candidate/package.tgz --provenance --ignore-scripts",
+  "node -e \"fetch('https://registry.npmjs.org/-/npm/v1/attestations/example')\"; npm publish candidate/package.tgz --provenance --ignore-scripts",
 );
 assert.equal(
   check(workflowChecks(attestationFetch), "release-publish-boundary").status,
@@ -352,8 +352,8 @@ const boundTemplateVariable = validWorkflow.replace(
 );
 assert.equal(
   check(workflowChecks(boundTemplateVariable), "release-publish-boundary").status,
-  "PROVEN",
-  "A validated variable must remain bound to a template path beneath the retained artifact root.",
+  "UNVERIFIED",
+  "A JavaScript binding needs data-flow review rather than prefix inference.",
 );
 
 const sourceShaOutput = validWorkflow.replaceAll("setOutput('sha'", "setOutput('source-sha'");
@@ -534,8 +534,8 @@ for (const [target, status] of [
 }
 assert.equal(
   check(workflowChecks(boundTemplateVariable.replace("`candidate/", "`./candidate/")), "release-publish-boundary").status,
-  "PROVEN",
-  "A bound template may use an explicit current-directory prefix.",
+  "UNVERIFIED",
+  "A current-directory prefix does not establish the value of a binding.",
 );
 for (const extraCommand of [
   "npm publish /tmp/evil.tgz --provenance --ignore-scripts",
@@ -543,6 +543,52 @@ for (const extraCommand of [
 ]) {
   const source = validWorkflow.replace("      - run: npm publish candidate/package.tgz --provenance --ignore-scripts", `      - run: npm publish candidate/package.tgz --provenance --ignore-scripts\n      - run: ${extraCommand}`);
   assert.equal(check(workflowChecks(source), "release-publish-boundary").status, "FAILED", extraCommand);
+}
+const publisher = "      - run: npm publish candidate/package.tgz --provenance --ignore-scripts";
+for (const [replacement, expected] of [
+  ["      - run: |\n          cd candidate\n          npm publish ./package.tgz --provenance --ignore-scripts", "PROVEN"],
+  ["      - run: |\n          cd candidate\n          npm publish \"./$tarball\" --provenance --ignore-scripts", "UNVERIFIED"],
+  ["      - working-directory: candidate\n        run: npm publish ./package.tgz --provenance --ignore-scripts", "PROVEN"],
+  ["      - working-directory: other\n        run: npm publish ./package.tgz --provenance --ignore-scripts", "FAILED"],
+  ["      - run: |\n          cd candidate\n          npm publish ../evil.tgz --provenance --ignore-scripts", "FAILED"],
+  ["      - run: |\n          cd candidate\n          printf replaced > package.tgz\n          npm publish ./package.tgz --provenance --ignore-scripts", "FAILED"],
+  ["      - run: |\n          cd candidate\n          printf replaced > ./package.tgz\n          npm publish ./package.tgz --provenance --ignore-scripts", "FAILED"],
+  ["      - run: cd candidate\n      - run: npm publish ./package.tgz --provenance --ignore-scripts", "FAILED"],
+  ["      - run: |\n          if true; then cd candidate; fi\n          npm publish ./package.tgz --provenance --ignore-scripts", "UNVERIFIED"],
+  ["      - run: |\n          cd candidate\n          cd other\n          npm publish ./package.tgz --provenance --ignore-scripts", "UNVERIFIED"],
+  ["      - working-directory: '${{ inputs.path }}'\n        run: npm publish ./package.tgz --provenance --ignore-scripts", "UNVERIFIED"],
+]) {
+  assert.equal(check(workflowChecks(validWorkflow.replace(publisher, replacement)), "release-publish-boundary").status, expected, replacement);
+}
+for (const envOwner of ["workflow", "job", "step"]) {
+  let source = validWorkflow.replace(publisher, "      - run: |\n          cd candidate\n          npm publish ./package.tgz --provenance --ignore-scripts");
+  if (envOwner === "workflow") source = "env:\n  CDPATH: /tmp\n" + source;
+  if (envOwner === "job") source = source.replace("  publish:\n", "  publish:\n    env:\n      CDPATH: /tmp\n");
+  if (envOwner === "step") source = source.replace("      - run: |\n          cd candidate", "      - env:\n          CDPATH: /tmp\n        run: |\n          cd candidate");
+  assert.equal(check(workflowChecks(source), "release-publish-boundary").status, "UNVERIFIED", `${envOwner} CDPATH may redirect a literal cd.`);
+}
+for (const command of [
+  'npm publish "./dir /../../evil.tgz" --provenance --ignore-scripts',
+  `node -e "execFileSync('npm', ['publish', './folder/' + '../../evil.tgz', '--provenance', '--ignore-scripts'])"`,
+  'npm publish ~/evil.tgz --provenance --ignore-scripts',
+  'npm publish `cat</tmp/target` --provenance --ignore-scripts',
+  'tarball="../evil.tgz"\n          npm publish "./$tarball" --provenance --ignore-scripts',
+  'npm publish "./$(printf ../evil.tgz)" --provenance --ignore-scripts',
+  `node -e "execFileSync('npm', ['publish', './package.tgz', '--provenance', '--ignore-scripts'], {cwd:'/tmp/evil'})"`,
+  `node -e "const tarball = join('candidate', '../evil.tgz'); run(['publish', tarball, '--provenance', '--ignore-scripts'])"`,
+]) {
+  const source = validWorkflow.replace(publisher, `      - working-directory: candidate\n        run: |\n          ${command}`);
+  assert.equal(check(workflowChecks(source), "release-publish-boundary").status, "UNVERIFIED", command);
+}
+const summaryOnly = validWorkflow.replace(publisher, "      - run: |\n          cd candidate\n          npm publish ./package.tgz --provenance --ignore-scripts\n          node -e \"appendFileSync(process.env.GITHUB_STEP_SUMMARY, 'done')\"");
+assert.equal(check(workflowChecks(summaryOnly), "release-publish-boundary").status, "PROVEN", "A summary write does not replace tarball bytes.");
+for (const defaults of [
+  "defaults:\n  run:\n    working-directory: candidate\n",
+  "",
+]) {
+  let source = validWorkflow.replace("npm publish candidate/package.tgz", "npm publish ./package.tgz");
+  source = defaults ? defaults + source : source.replace("  publish:\n", "  publish:\n    defaults:\n      run:\n        working-directory: candidate\n");
+  assert.equal(check(workflowChecks(source), "release-publish-boundary").status, "PROVEN", "Literal workflow/job defaults apply to publication.");
 }
 const mixedSameStep = validWorkflow.replace("npm publish candidate/package.tgz --provenance --ignore-scripts", "npm publish candidate/package.tgz --provenance --ignore-scripts && npm publish /tmp/evil.tgz --provenance --ignore-scripts");
 assert.equal(check(workflowChecks(mixedSameStep), "release-publish-boundary").status, "FAILED", "A second publisher in the same step must also be checked.");
