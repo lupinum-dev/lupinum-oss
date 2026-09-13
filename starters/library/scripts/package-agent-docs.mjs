@@ -36,6 +36,7 @@ function pageMetadata(source, path) {
   const meta = parse(match[1])
   if (!meta || typeof meta.title !== 'string' || !meta.title.trim()
     || typeof meta.route !== 'string' || !meta.route.startsWith('/') || meta.route.startsWith('//')
+    || [...meta.route].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
     || typeof meta.url !== 'string' || !/^https?:\/\//u.test(meta.url)) {
     throw new Error(`Generated page requires title, route and canonical URL: ${path}`)
   }
@@ -74,7 +75,8 @@ export async function buildPackageAgentDocs({ packageRoot, sourceRoot, startRout
     if (!pages.some(page => page.route === route)) throw new Error(`Starting route is missing: ${route}`)
   }
   const label = value => value.replace(/[\r\n[\]\\]/gu, ' ')
-  const link = page => `- [${label(page.title)}](./${page.file.split('/').map(encodeURIComponent).join('/')}) — ${page.route}`
+  const encodeSegment = segment => encodeURIComponent(segment).replace(/[()]/gu, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+  const link = page => `- [${label(page.title)}](./${page.file.split('/').map(encodeSegment).join('/')}) — ${page.route}`
   const entry = [
     `# ${pkg.name}`, '', `Documentation for installed version ${pkg.version}.`, '',
     'Read the relevant local pages before changing this package’s integration.',
@@ -100,6 +102,8 @@ export async function buildPackageAgentDocs({ packageRoot, sourceRoot, startRout
     await writeFile(destination, bytes)
   }
   await writeFile(join(output, 'AGENTS.md'), entry)
+  // Write the inventory last. Interrupted builds fail verification before packing;
+  // the runtime build already removes previous dist output. No watch reader uses it.
   await writeFile(join(output, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   return manifest
 }

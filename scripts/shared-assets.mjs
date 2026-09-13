@@ -42,6 +42,27 @@ for (const [canonical, targets] of Object.entries(assets)) {
   }
 }
 
+// README and website onboarding are two views of one consumer prompt.
+const onboarding = await readFile(new URL("starters/_shared/consumer-onboarding.md", root), "utf8");
+for (const profile of ["library", "library-monorepo"]) {
+  const packageToken = profile === "library" ? "{{PACKAGE_NAME}}" : "{{PRIMARY_PACKAGE}}";
+  for (const file of ["README.md", "docs/content/docs/1.getting-started/1.index.md"]) {
+    const path = `starters/${profile}/${file}`;
+    const target = new URL(path, root);
+    const source = await readFile(target, "utf8");
+    const begin = "<!-- BEGIN:consumer-onboarding -->";
+    const end = "<!-- END:consumer-onboarding -->";
+    if (source.split(begin).length !== 2 || source.split(end).length !== 2 || source.indexOf(begin) > source.indexOf(end)) {
+      throw new Error(`Expected one ordered onboarding block in ${path}.`);
+    }
+    const start = source.indexOf(begin) + begin.length;
+    const finish = source.indexOf(end);
+    const expected = `\n${onboarding.replaceAll("{{CONSUMER_PACKAGE}}", packageToken)}`;
+    if (write) await writeFile(target, source.slice(0, start) + expected + source.slice(finish));
+    else if (source.slice(start, finish) !== expected) drift.push(path);
+  }
+}
+
 if (drift.length) {
   console.error(drift.map((path) => `- ${path} differs from its canonical source`).join("\n"));
   console.error("Run `pnpm shared:sync` and review the generated copies.");

@@ -38,6 +38,7 @@ import { greet } from '{{PACKAGE_NAME}}'
 console.log(greet('World'))
 ```
 
+<!-- BEGIN:consumer-onboarding -->
 ## Use a coding agent
 
 Copy this task prompt into your application agent:
@@ -54,6 +55,7 @@ Check the completed feature using this project's normal commands.
 
 The installed documentation matches the package version. If an older version
 has no documentation export, use its README, types and matching release docs.
+<!-- END:consumer-onboarding -->
 
 ## Documentation
 

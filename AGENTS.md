@@ -45,7 +45,9 @@ Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged rele
   and commit the exact repository-owned copies.
 - Maintain package documentation packaging in
   `starters/_shared/package-agent-docs.mjs`. Run `pnpm shared:sync` and
-  commit both library starter copies.
+  commit both library starter copies. The same sync command maintains
+  README and website onboarding blocks from
+  `starters/_shared/consumer-onboarding.md`.
 - Keep `fleet/libraries.json` limited to public libraries governed by this
   standard. Do not add customer applications or duplicate repository-local
   package inventories or build configuration there.
