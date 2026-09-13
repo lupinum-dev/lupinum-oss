@@ -15,7 +15,7 @@ for (const manager of ['npm', 'pnpm']) {
       ? ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...tarballs]
       : ['add', '--ignore-scripts', ...tarballs]
     const install = spawnSync(manager, args, { cwd: consumer, encoding: 'utf8', timeout: 120000 })
-    if (install.status !== 0) throw new Error(install.error?.message || install.stderr || 'Packed consumer installation failed.')
+    if (install.status !== 0) throw new Error(install.error?.message || install.stderr || install.stdout || 'Packed consumer installation failed.')
     const require = createRequire(join(consumer, 'package.json'))
     for (const pkg of release.packages) {
       const entry = require.resolve(`${pkg.name}/agent-docs`)

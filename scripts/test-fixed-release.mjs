@@ -40,6 +40,7 @@ try {
   // Include an internal dependency so packing must replace workspace:* with the candidate version.
   manifests[1].dependencies = { ...manifests[1].dependencies, [manifests[0].name]: "workspace:*" };
   await writeJson(packagePaths[1], manifests[1]);
+  await writeFile(join(project, packagePaths[1].replace("package.json", "src/index.ts")), `export { createItem } from '${manifests[0].name}'\n`);
   run("pnpm", ["install", "--lockfile-only", "--offline", "--ignore-scripts", "--no-frozen-lockfile"]);
   commit("feat: initialize fixed-set trial");
 

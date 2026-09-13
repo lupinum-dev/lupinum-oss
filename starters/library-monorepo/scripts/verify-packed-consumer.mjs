@@ -11,11 +11,17 @@ for (const manager of ['npm', 'pnpm']) {
   const consumer = await mkdtemp(join(tmpdir(), 'lupinum-packed-consumer-'))
   try {
     await writeFile(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
+    if (manager === 'pnpm') {
+      // Candidates are not on the registry yet. Replace only this exact version
+      // of each candidate, including internal dependencies, with its retained bytes.
+      const overrides = Object.fromEntries(release.packages.map((pkg, index) => [`${pkg.name}@${pkg.version}`, `file:${tarballs[index]}`]))
+      await writeFile(join(consumer, 'pnpm-workspace.yaml'), JSON.stringify({ overrides }))
+    }
     const args = manager === 'npm'
       ? ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...tarballs]
       : ['add', '--ignore-scripts', ...tarballs]
     const install = spawnSync(manager, args, { cwd: consumer, encoding: 'utf8', timeout: 120000 })
-    if (install.status !== 0) throw new Error(install.error?.message || install.stderr || 'Packed consumer installation failed.')
+    if (install.status !== 0) throw new Error(install.error?.message || install.stderr || install.stdout || 'Packed consumer installation failed.')
     const require = createRequire(join(consumer, 'package.json'))
     for (const pkg of release.packages) {
       const entry = require.resolve(`${pkg.name}/agent-docs`)
