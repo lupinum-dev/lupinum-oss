@@ -27,7 +27,7 @@ jobs:
         with: { node-version: 24.18.0, package-manager-cache: false }
       - run: corepack enable pnpm && corepack prepare pnpm@11.21.0 --activate
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - run: pnpm build && pnpm docs:build && pnpm docs:package
       - id: artifact
         env:
           GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -19,7 +19,8 @@
     "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release && node scripts/verify-packed-consumer.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm check:dependencies && pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm --dir docs build"
+    "verify": "pnpm check:dependencies && pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm --dir docs build && pnpm docs:package",
+    "docs:package": "node scripts/build-agent-docs.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",

@@ -80,3 +80,14 @@ Do not delete a published version. Deprecate a broken version, restore the last 
 ## Credential incident
 
 Stop releases. Revoke the affected credential or trusted publisher. Review audit logs and published bytes. Do not commit replacement secrets. Restore trusted publishing only after the repository and account are safe.
+
+## Installed package documentation
+
+Edit public pages in `docs/content/`. After the runtime and website builds,
+`pnpm docs:package` copies the rendered Markdown into each public package.
+Do not edit `dist/agent/` or copy maintainer instructions there.
+`pnpm verify` builds this snapshot. `pnpm release:verify` checks its identity
+and the public example from the retained tarball with npm and pnpm.
+Update the selected starting routes in `scripts/build-agent-docs.mjs` when
+the documentation structure changes. Follow the
+[package documentation standard](https://oss.lupinum.com/docs/standards/versioned-package-documentation).

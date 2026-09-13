@@ -43,6 +43,9 @@ Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged rele
 - Maintain the on-demand Vercel preview workflow once in
   `starters/_shared/vercel-preview.yml`. Run `pnpm shared:sync` after changes
   and commit the exact repository-owned copies.
+- Maintain package documentation packaging in
+  `starters/_shared/package-agent-docs.mjs`. Run `pnpm shared:sync` and
+  commit both library starter copies.
 - Keep `fleet/libraries.json` limited to public libraries governed by this
   standard. Do not add customer applications or duplicate repository-local
   package inventories or build configuration there.

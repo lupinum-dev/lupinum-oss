@@ -3,10 +3,13 @@ import { appendFile, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/pr
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
+import { verifyPackageAgentDocs } from './package-agent-docs.mjs'
+
 const preview = process.argv.includes('--preview')
 const directory = preview ? '.preview-artifacts' : 'release-artifacts'
 await rm(directory, { recursive: true, force: true })
 await mkdir(directory, { recursive: true })
+await verifyPackageAgentDocs('.', { sourceRoot: 'docs/.output/public/raw' })
 const result = spawnSync('npm', ['pack', '--ignore-scripts', '--pack-destination', directory], {
   encoding: 'utf8',
   env: { ...process.env, npm_config_cache: process.env.npm_config_cache ?? resolve('.npm-cache') },

@@ -3,6 +3,9 @@ import { dirname } from "node:path";
 
 const root = new URL("../", import.meta.url);
 const assets = {
+  "starters/_shared/package-agent-docs.mjs": [
+    ...["library", "library-monorepo"].map((profile) => `starters/${profile}/scripts/package-agent-docs.mjs`),
+  ],
   "starters/_shared/vercel-preview.yml": [
     ".github/workflows/vercel-preview.yml",
     "starters/library/.github/workflows/vercel-preview.yml",
