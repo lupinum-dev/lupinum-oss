@@ -1,4 +1,5 @@
 import { parse } from "yaml";
+import { posix } from "node:path";
 import { checkWorkflow, containsNpmCredential } from "./workflow-policy.mjs";
 
 const statuses = new Set(["PROVEN", "FAILED", "UNVERIFIED", "HUMAN-ONLY"]);
@@ -42,7 +43,26 @@ function isPublishCommand(commands) {
     || /\brun\(\s*\[\s*["']publish["']/u.test(commands);
 }
 
-function retainedPublicationStatus(job) {
+// Recognize only literal defaults and an unconditional first directory change.
+// Shell functions, conditional changes, and JavaScript cwd changes need review.
+function publicationDirectory(workflow, job, step, command) {
+  let directory = step["working-directory"] ?? job.defaults?.run?.["working-directory"]
+    ?? workflow.defaults?.run?.["working-directory"] ?? ".";
+  const literal = (value) => typeof value === "string" && /^[A-Za-z0-9_./-]+$/u.test(value);
+  if (!literal(directory)) return undefined;
+  const lines = command.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+  const first = /^cd\s+(["']?)([A-Za-z0-9_./-]+)\1$/u.exec(lines[0] ?? "");
+  if (first) {
+    const cdpath = step.env?.CDPATH ?? job.env?.CDPATH ?? workflow.env?.CDPATH;
+    if (cdpath !== undefined && cdpath !== "") return undefined;
+    directory = posix.isAbsolute(first[2]) ? first[2] : posix.join(directory, first[2]);
+    lines.shift();
+  }
+  if (/(?:^|[\s;&|])(cd|pushd|popd)(?:\s|$)|\bprocess\.chdir\s*\(/mu.test(lines.join("\n"))) return undefined;
+  return directory;
+}
+
+function retainedPublicationStatus(workflow, job) {
   const commands = commandsFor(job);
   const paths = actionSteps(job, "actions/download-artifact").map((step) => step.with?.path)
     .filter((path) => typeof path === "string" && !isExpression(path));
@@ -51,33 +71,43 @@ function retainedPublicationStatus(job) {
   if (/(?:^|\s)(?:curl|wget)\b/mu.test(commands)
     || paths.some((path) => mutatesRetainedTarball(job.steps ?? [], path))) return "FAILED";
 
-  const withinArtifact = (target) => {
+  const withinArtifact = (target, directory = ".") => {
     if (target.startsWith("/") || target.split("/").includes("..")) return false;
-    const normalized = target.replace(/^\.\//u, "");
+    if (directory.startsWith("/") || directory.split("/").includes("..")) return false;
+    const normalized = posix.join(directory, target);
     return paths.some((path) => normalized.startsWith(`${path.replace(/^\.\//u, "")}/`));
   };
   const statuses = [];
   for (const step of job.steps ?? []) {
+    const directory = publicationDirectory(workflow, job, step, step.run ?? "");
+    if (directory !== undefined && withinArtifact("file.tgz", directory)
+      && mutatesRetainedTarball([step], "")) return "FAILED";
+    if (directory === undefined && mutatesRetainedTarball([step], "")) statuses.push("UNVERIFIED");
     const command = step.run ?? "";
     // Inspect every supported publication in its own step. One safe command
     // must not hide a second publisher outside the downloaded directory.
     const targets = [
       ...[...command.matchAll(/(?:^|&&|\|\||;)\s*(?:npm|pnpm|yarn\s+npm)\s+publish\s+([^\s;]+)(?:\s|$)/gmu)].map((match) => ({ value: match[1], shell: true, index: match.index, length: match[0].length })),
-      ...[...command.matchAll(/\[\s*["']publish["']\s*,\s*('[^']*'|"[^"]*"|`[^`]*`|[A-Za-z_$][\w$.]*)/gu)].map((match) => ({ value: match[1], shell: false, index: match.index, length: match[0].length })),
+      ...[...command.matchAll(/\[\s*["']publish["']\s*,\s*('[^']*'|"[^"]*"|`[^`]*`|[A-Za-z_$][\w$.]*)(?=\s*[,\]])/gu)].map((match) => ({ value: match[1], shell: false, index: match.index, length: match[0].length })),
     ];
     for (const target of targets) {
+      const directory = publicationDirectory(workflow, job, step, command.slice(0, target.index));
+      // Subprocess options can override the shell directory. Do not infer
+      // JavaScript data flow or shell expansion from a safe-looking prefix.
+      if (directory === undefined || (!target.shell && /\bcwd\b/u.test(command))) {
+        statuses.push("UNVERIFIED");
+        continue;
+      }
       const quoted = /^["'`]/u.test(target.value);
       if (quoted || target.shell) {
         const value = quoted ? target.value.slice(1, -1) : target.value;
-        statuses.push(value.startsWith("$") ? "UNVERIFIED" : withinArtifact(value) ? "PROVEN" : "FAILED");
+        const dynamic = (quoted && target.value.at(-1) !== target.value[0])
+          || !/^[A-Za-z0-9_./-]+$/u.test(value)
+          || (target.shell && target.value.startsWith("`"));
+        statuses.push(dynamic ? "UNVERIFIED" : withinArtifact(value, directory) ? "PROVEN" : "FAILED");
         continue;
       }
-      const templateBinding = [...command.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*`([^`]+)`/gu)]
-        .find((match) => match[1] === target.value);
-      const pathBinding = [...command.matchAll(/(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:join|resolve)\(\s*["']([^"']+)["']/gu)]
-        .find((match) => match[1] === target.value);
-      const boundPath = templateBinding?.[2] ?? (pathBinding ? `${pathBinding[2]}/` : undefined);
-      statuses.push(boundPath === undefined ? "UNVERIFIED" : withinArtifact(boundPath) ? "PROVEN" : "FAILED");
+      statuses.push("UNVERIFIED");
     }
     let remaining = command;
     for (const target of targets.sort((a, b) => b.index - a.index)) {
@@ -166,11 +196,12 @@ function manualVersionCiTrigger(workflow, verifier) {
 }
 
 function mutatesRetainedTarball(steps, path) {
-  const escaped = `(?:\\./)?${path.replace(/^\.\//u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`;
+  const escaped = path === "" ? "(?:\\./)?" : `(?:\\./)?${path.replace(/^\.\//u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}/`;
+  const writeTarget = path === "" ? "\\.tgz" : `(?:${escaped}|\\.tgz)`;
   return steps.some((step) => {
     const command = step.run ?? "";
-    return new RegExp(`(?:>|>>)\\s*["']?${escaped}/[^\\n]*\\.tgz`, "u").test(command)
-      || new RegExp(`(?:writeFile|appendFile|createWriteStream)\\w*\\s*\\([^\\n]*(?:${escaped}/|\\.tgz)`, "u").test(command)
+    return new RegExp(`(?:>|>>)\\s*["']?${escaped}[^\\n]*\\.tgz`, "u").test(command)
+      || new RegExp(`(?:writeFile|appendFile|createWriteStream)\\w*\\s*\\([^\\n]*${writeTarget}`, "u").test(command)
       || /(?:npm|pnpm)\s+pack\b|\btar\s+(?:-[^\n]*c|--create)\b/mu.test(command);
   });
 }
@@ -488,7 +519,7 @@ export function evaluateReleaseWorkflows(workflows, profile) {
     }
   }
 
-  const publicationStatus = protectedNames.length === 1 ? retainedPublicationStatus(jobs[protectedNames[0]]) : "FAILED";
+  const publicationStatus = protectedNames.length === 1 ? retainedPublicationStatus(candidate.workflow, jobs[protectedNames[0]]) : "FAILED";
   const publicationEvidence = publicationStatus === "UNVERIFIED"
     ? "publication target syntax is not supported by structural analysis; retained-artifact binding needs verification"
     : publicationStatus === "FAILED" ? "publication escapes or replaces the retained artifact" : "";
