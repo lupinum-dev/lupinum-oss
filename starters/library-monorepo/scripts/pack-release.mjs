@@ -3,6 +3,8 @@ import { appendFile, copyFile, mkdir, readFile, readdir, rm, writeFile } from 'n
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
+import { verifyPackageAgentDocs } from './package-agent-docs.mjs'
+
 const preview = process.argv.includes('--preview')
 const directory = preview ? '.preview-artifacts' : 'release-artifacts'
 await rm(directory, { recursive: true, force: true })
@@ -24,6 +26,7 @@ packageManifests.sort((left, right) => left.manifest.name.localeCompare(right.ma
 if (packageManifests.length < 2) throw new Error('A package workspace release requires at least two packages.')
 if (new Set(packageManifests.map(entry => entry.manifest.name)).size !== packageManifests.length) throw new Error('Package names must be unique.')
 for (const { packageDirectory, packagePath, manifest } of packageManifests) {
+  await verifyPackageAgentDocs(packagePath, { sourceRoot: 'docs/.output/public/raw' })
   const result = spawnSync('pnpm', ['--dir', packagePath, '--config.ignore-scripts=true', 'pack', '--pack-destination', resolve(directory)], {
     encoding: 'utf8',
     env: { ...process.env, npm_config_cache: process.env.npm_config_cache ?? resolve('.npm-cache') },

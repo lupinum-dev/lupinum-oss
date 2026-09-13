@@ -40,6 +40,7 @@ try {
   // Include an internal dependency so packing must replace workspace:* with the candidate version.
   manifests[1].dependencies = { ...manifests[1].dependencies, [manifests[0].name]: "workspace:*" };
   await writeJson(packagePaths[1], manifests[1]);
+  await writeFile(join(project, packagePaths[1].replace("package.json", "src/index.ts")), `export { createItem } from '${manifests[0].name}'\n`);
   run("pnpm", ["install", "--lockfile-only", "--offline", "--ignore-scripts", "--no-frozen-lockfile"]);
   commit("feat: initialize fixed-set trial");
 
@@ -79,6 +80,7 @@ try {
     const sourceSha = run("git", ["rev-parse", "HEAD"]);
     const staleSha = run("git", ["rev-parse", "HEAD^"]);
     run("pnpm", ["build"]);
+    run("pnpm", ["docs:package"]);
     run("pnpm", ["pack:release"], /The release source differs from GITHUB_SHA\./, { GITHUB_SHA: staleSha });
     await assert.rejects(readJson("release-artifacts/release.json"), { code: "ENOENT" });
     run("pnpm", ["pack:release"], 0, { GITHUB_SHA: sourceSha });
@@ -104,6 +106,9 @@ try {
     clean();
     console.log(`Certified ${version}: ${manifest.packages.length} packages, ${distTag}, source ${sourceSha}; packed consumers and dependency ranges passed.`);
   }
+  // These version-only trials leave public pages unchanged. Render them once,
+  // then regenerate the installed identity after each candidate version change.
+  run("pnpm", ["docs:build"]);
   run("pnpm", ["changeset", "pre", "enter", "beta"]);
   await changeset("first-beta", "minor", "Add the reviewed fixed-set feature.");
   commit("feat: add a reviewed fixed-set feature");

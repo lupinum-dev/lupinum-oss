@@ -8,7 +8,10 @@
   "author": "Lupinum OG <info@lupinum.com> (https://lupinum.com)",
   "homepage": "https://{{DOMAIN}}",
   "repository": { "type": "git", "url": "git+https://github.com/{{REPOSITORY}}.git", "directory": "packages/{{PACKAGE_DIR}}" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./agent-docs": "./dist/agent/AGENTS.md"
+  },
   "files": ["dist", "README.md", "LICENSE"],
   "publishConfig": { "access": "public" },
   "scripts": { "build": "tsup src/index.ts --format esm --dts --clean" },

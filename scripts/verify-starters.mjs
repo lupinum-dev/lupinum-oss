@@ -56,6 +56,8 @@ for (const profile of profiles) {
       ".github/workflows/publish.yml",
       ".github/workflows/vercel-preview.yml",
       "scripts/verify-packed-consumer.mjs",
+      "scripts/build-agent-docs.mjs",
+      "scripts/package-agent-docs.mjs",
     );
   }
   const missingRequired = [];
