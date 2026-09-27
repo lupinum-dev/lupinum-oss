@@ -89,6 +89,10 @@ function steps(job) {
   return Array.isArray(job?.steps) ? job.steps : []
 }
 
+// Installs or runs dependency or repository code: a package manager, node, or a local action.
+const RUNS_CODE = /(^|[\s;&|(`])(pnpm|yarn|npx|bun|bunx|node|tsx|deno)(\s|$)|\bnpm\s+(install|i|ci|add|run|exec|x|test|start|rebuild|pack)\b/m
+const runsCode = step => RUNS_CODE.test(typeof step?.run === 'string' ? step.run : '') || /^\.\//.test(step?.uses ?? '')
+
 export function publicPackages(src) {
   const manifests = ['package.json']
   const patterns = yaml(src.read('pnpm-workspace.yaml'))?.packages ?? []
@@ -173,11 +177,12 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     else if (typeof top === 'object' && top && Object.values(top).includes('write')) {
       permissionProblems.push(`${name}: top-level permissions grant write; grant it per job`)
     }
-    // A job that can start workflows (and so a green `ci`) must not run dependency code.
+    // A job that can push, open pull requests or start workflows (and so a green `ci`) must not
+    // run dependency or repository code.
     for (const [id, job] of jobs) {
-      if (job?.permissions?.actions === 'write' && steps(job).some(step => /\b(pnpm|npm|yarn)\s+(install|i|ci)\b/.test(step?.run ?? ''))) {
-        permissionProblems.push(`${name}: job ${id} installs dependencies and has actions: write`)
-      }
+      const permissions = job?.permissions ?? top
+      const writes = permissions === 'write-all' ? ['write-all'] : ['actions', 'contents', 'pull-requests'].filter(scope => permissions?.[scope] === 'write').map(scope => `${scope}: write`)
+      if (writes.length && steps(job).some(runsCode)) permissionProblems.push(`${name}: job ${id} installs or runs repository code and has ${list(writes)}`)
     }
   }
   add('permissions', permissionProblems.length ? 'fail' : 'pass', permissionProblems.length ? list(permissionProblems) : 'read-only default, write per job')
@@ -218,11 +223,20 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     add('publish-job', problems.length ? 'fail' : 'pass', problems.length ? list([...new Set(problems)]) : "npm publish of packed tarball in 'npm' environment with OIDC")
 
     const changesets = json(src.read('.changeset/config.json'))
-    const changelog = JSON.stringify(changesets?.changelog ?? '')
     if (!changesets) add('changesets', 'fail', '.changeset/config.json missing or invalid')
-    else if (!changelog.includes('@changesets/changelog-github')) add('changesets', 'warn', 'changelog is not @changesets/changelog-github')
-    else if (!/changesets\/action@/.test(release?.text ?? '')) add('changesets', 'warn', 'release.yml does not use changesets/action')
-    else add('changesets', 'pass', 'config, changelog-github, changesets/action')
+    else add('changesets', 'pass', `.changeset/config.json, changelog ${JSON.stringify(changesets.changelog ?? 'default')}`)
+
+    // The Changesets CLI is dependency code: the job that runs it gets a read-only token and
+    // only produces a patch; a job that runs no repository code pushes it and opens the PR.
+    const versionJobs = Object.entries(release?.data?.jobs ?? {})
+      .filter(([, job]) => steps(job).some(step => /changesets\/action@/.test(step?.uses ?? '') || /\bchangeset version\b/.test(step?.run ?? '')))
+    const writers = versionJobs.filter(([, job]) => {
+      const permissions = job?.permissions ?? release.data.permissions
+      return permissions === 'write-all' || ['contents', 'pull-requests'].some(scope => permissions?.[scope] === 'write')
+    }).map(([id]) => id)
+    if (!versionJobs.length) add('version-job', 'warn', 'no job in release.yml runs changeset version')
+    else if (writers.length) add('version-job', 'fail', `${list(writers)} runs the Changesets CLI with contents or pull-requests write; run it read-only and push its patch from a job that runs no repository code`)
+    else add('version-job', 'pass', `${list(versionJobs.map(([id]) => id))} runs the Changesets CLI read-only`)
 
     const preview = workflows.get('preview.yml')?.text ?? ''
     add('preview', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pass' : 'warn', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pkg.pr.new' : 'preview.yml does not use pkg.pr.new')
@@ -278,21 +292,50 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
 
 // ---------- settings checks (remote only) ----------
 
-export async function auditSettings(src, { publishes }) {
+// Compares two semver versions: negative when a < b.
+export function compareVersions(a, b) {
+  const parse = version => {
+    const [core, pre = ''] = String(version).replace(/\+.*$/, '').split(/-(.*)/s)
+    return { core: core.split('.').map(Number), pre: pre ? pre.split('.') : [] }
+  }
+  const [x, y] = [parse(a), parse(b)]
+  for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return x.core[i] - y.core[i]
+  if (!x.pre.length || !y.pre.length) return y.pre.length - x.pre.length
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const [p, q] = [x.pre[i], y.pre[i]]
+    if (p === undefined || q === undefined) return p === undefined ? -1 : 1
+    if (p === q) continue
+    const [np, nq] = [/^\d+$/.test(p), /^\d+$/.test(q)]
+    if (np && nq) return Number(p) - Number(q)
+    if (np !== nq) return np ? -1 : 1
+    return p < q ? -1 : 1
+  }
+  return 0
+}
+
+// The version manifest behind a dist-tag, or null when the tag does not exist.
+async function registryTag(name, tag) {
+  const response = await fetch(`https://registry.npmjs.org/${name.replace('/', '%2F')}/${tag}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
+  return response?.ok ? response.json() : null
+}
+
+export async function auditSettings(src, { publishes, api = gh, registry = registryTag }) {
   const results = []
   const add = (id, status, detail) => results.push({ id, status, detail })
   const repo = src.repository
   if (src.truncated) add('tree', 'warn', 'git tree truncated; file checks may be incomplete')
 
   // 13. Ruleset on the default branch.
-  const rules = gh(`repos/${repo}/rules/branches/${encodeURIComponent(src.branch)}`)
+  const rules = api(`repos/${repo}/rules/branches/${encodeURIComponent(src.branch)}`)
   if (!rules.ok) add('ruleset', 'warn', `unverified: ${rules.error}`)
   else {
     const byType = type => rules.data.find(rule => rule.type === type)
     const problems = []
     if (!byType('pull_request')) problems.push('pull request not required')
-    const contexts = byType('required_status_checks')?.parameters?.required_status_checks?.map(check => check.context) ?? []
-    if (!contexts.includes('ci')) problems.push(`required checks are [${list(contexts)}], need 'ci'`)
+    const checks = byType('required_status_checks')?.parameters?.required_status_checks ?? []
+    const ci = checks.find(check => check.context === 'ci')
+    if (!ci) problems.push(`required checks are [${list(checks.map(check => check.context))}], need 'ci'`)
+    else if (ci.integration_id !== 15368) problems.push("required check 'ci' is not bound to GitHub Actions (integration_id 15368), so another app could report it")
     if (!byType('non_fast_forward')) problems.push('force push allowed')
     if (!byType('required_linear_history')) problems.push('linear history not required')
     const methods = byType('pull_request')?.parameters?.allowed_merge_methods
@@ -300,54 +343,104 @@ export async function auditSettings(src, { publishes }) {
     if (src.meta.allow_auto_merge && !approvals) problems.push('auto-merge enabled with no required approvals (any token that opens a PR could merge it)')
     if (problems.length) add('ruleset', 'fail', list(problems))
     else if (methods && (methods.length !== 1 || methods[0] !== 'squash')) add('ruleset', 'warn', `merge methods: ${list(methods)} (standard: squash)`)
-    else add('ruleset', 'pass', `PR, 'ci', no force push, linear history on ${src.branch}`)
+    else add('ruleset', 'pass', `PR, 'ci' from GitHub Actions, no force push, linear history on ${src.branch}`)
   }
 
-  // 14. Protected npm environment with a required reviewer.
+  // 13b. Release tags cannot be moved or deleted: an active tag ruleset blocks update and
+  // deletion, and its patterns cover every tag the repository has released under.
   if (publishes) {
-    const env = gh(`repos/${repo}/environments/npm`)
-    if (!env.ok) add('npm-environment', env.notFound ? 'fail' : 'warn', env.notFound ? "no 'npm' environment" : `unverified: ${env.error}`)
+    const listed = api(`repos/${repo}/rulesets?targets=tag&includes_parents=true`)
+    if (!listed.ok) add('tag-ruleset', 'warn', `unverified: ${listed.error}`)
     else {
-      const reviewers = env.data.protection_rules?.find(rule => rule.type === 'required_reviewers')?.reviewers ?? []
-      if (!reviewers.length) add('npm-environment', 'fail', "'npm' environment has no required reviewer")
-      else if (!env.data.deployment_branch_policy) add('npm-environment', 'warn', `reviewers: ${list(reviewers.map(r => r.reviewer?.login ?? r.reviewer?.name))}; any branch may deploy`)
-      else add('npm-environment', 'pass', `reviewers: ${list(reviewers.map(r => r.reviewer?.login ?? r.reviewer?.name))}`)
+      const rulesets = listed.data.filter(ruleset => ruleset.target === 'tag' && ruleset.enforcement === 'active')
+        .map(ruleset => api(`repos/${repo}/rulesets/${ruleset.id}`)).filter(detail => detail.ok).map(detail => detail.data)
+        .filter(ruleset => ['update', 'deletion'].every(type => ruleset.rules?.some(rule => rule.type === type)))
+      const toRegex = pattern => pattern === '~ALL' ? /^/ : new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*/g, star => (star === '*' ? '[^/]*' : '.*'))}$`)
+      const matches = (patterns, ref) => (patterns ?? []).some(pattern => toRegex(pattern).test(ref))
+      const covered = ref => rulesets.some(({ conditions }) => matches(conditions?.ref_name?.include, ref) && !matches(conditions?.ref_name?.exclude, ref))
+      const releases = api(`repos/${repo}/releases?per_page=100`)
+      const uncovered = releases.ok ? [...new Set(releases.data.map(release => release.tag_name))].filter(tag => !covered(`refs/tags/${tag}`)) : []
+      const patterns = rulesets.flatMap(({ conditions }) => conditions?.ref_name?.include ?? [])
+      if (!rulesets.length) add('tag-ruleset', 'fail', 'no active tag ruleset blocks update and deletion, so a release tag can be moved or deleted')
+      else if (uncovered.length) add('tag-ruleset', 'fail', `release tags not covered by the tag ruleset: ${list(uncovered.slice(0, 5))}${uncovered.length > 5 ? ', ...' : ''}`)
+      else add('tag-ruleset', releases.ok ? 'pass' : 'warn', `${list(patterns)} cannot be moved or deleted${releases.ok ? '' : `; releases unverified: ${releases.error}`}`)
     }
   }
 
-  // 15. No npm token stored as a secret.
+  // 14. Actions token: read-only by default; may open pull requests only where release.yml needs it.
+  const workflow = api(`repos/${repo}/actions/permissions/workflow`)
+  if (!workflow.ok) add('actions-permissions', 'warn', `unverified: ${workflow.error}`)
+  else {
+    const { default_workflow_permissions: token, can_approve_pull_request_reviews: canCreate } = workflow.data
+    if (token !== 'read') add('actions-permissions', 'fail', `default GITHUB_TOKEN permissions are '${token}' (need 'read')`)
+    else if (publishes && !canCreate) add('actions-permissions', 'fail', 'Actions may not create pull requests, so release.yml cannot open the Version packages PR')
+    else if (!publishes && canCreate) add('actions-permissions', 'warn', 'Actions may create and approve pull requests, which a repository that publishes nothing does not need')
+    else add('actions-permissions', 'pass', `read-only default${canCreate ? ', may create pull requests' : ''}`)
+  }
+
+  // 15. Protected npm environment: required reviewer, no admin bypass, deploys from main only.
+  if (publishes) {
+    const env = api(`repos/${repo}/environments/npm`)
+    if (!env.ok) add('npm-environment', env.notFound ? 'fail' : 'warn', env.notFound ? "no 'npm' environment" : `unverified: ${env.error}`)
+    else {
+      const reviewers = env.data.protection_rules?.find(rule => rule.type === 'required_reviewers')?.reviewers ?? []
+      const policy = env.data.deployment_branch_policy
+      const branches = policy?.custom_branch_policies ? api(`repos/${repo}/environments/npm/deployment-branch-policies`) : null
+      const onlyMain = branches?.ok && branches.data.branch_policies?.length === 1
+        && branches.data.branch_policies[0].name === 'main' && (branches.data.branch_policies[0].type ?? 'branch') === 'branch'
+      const problems = []
+      if (!reviewers.length) problems.push('no required reviewer')
+      if (env.data.can_admins_bypass !== false) problems.push('administrators can bypass the protection rules')
+      if (!onlyMain) problems.push(branches && !branches.ok ? `deployment branches unverified: ${branches.error}` : "deployment branches are not exactly 'main'")
+      if (problems.length) add('npm-environment', 'fail', list(problems))
+      else add('npm-environment', 'pass', `reviewers: ${list(reviewers.map(r => r.reviewer?.login ?? r.reviewer?.name))}; main only; no admin bypass`)
+    }
+  }
+
+  // 16. No secrets: the standard needs none, and an npm token must never exist.
   const secretNames = []
   let unreadable = false
   for (const path of [`repos/${repo}/actions/secrets`, ...(publishes ? [`repos/${repo}/environments/npm/secrets`] : [])]) {
-    const secrets = gh(path)
+    const secrets = api(path)
     if (secrets.ok) secretNames.push(...secrets.data.secrets.map(secret => secret.name))
     else if (!secrets.notFound) unreadable = true
   }
   const npmSecrets = secretNames.filter(name => /NPM/i.test(name))
-  if (npmSecrets.length) add('no-npm-secret', 'fail', `npm secrets exist: ${list(npmSecrets)}`)
-  else add('no-npm-secret', unreadable ? 'warn' : 'pass', unreadable ? 'unverified: secrets not readable' : 'no npm secrets')
+  if (npmSecrets.length) add('secrets', 'fail', `npm secrets exist: ${list(npmSecrets)}`)
+  else if (secretNames.length) add('secrets', 'warn', `Actions secrets exist: ${list(secretNames)} (the standard needs none; delete unused ones)`)
+  else add('secrets', unreadable ? 'warn' : 'pass', unreadable ? 'unverified: secrets not readable' : 'no Actions secrets')
 
-  // 16. Secret scanning, push protection, CodeQL default setup.
+  // 17. Secret scanning, push protection, CodeQL default setup; Renovate alone opens update PRs.
   const security = src.meta.security_and_analysis
   if (!security) add('secret-scanning', 'warn', 'unverified: needs admin access')
   else {
     const off = ['secret_scanning', 'secret_scanning_push_protection'].filter(key => security[key]?.status !== 'enabled')
     add('secret-scanning', off.length ? 'fail' : 'pass', off.length ? `disabled: ${list(off)}` : 'secret scanning and push protection enabled')
   }
-  const codeql = gh(`repos/${repo}/code-scanning/default-setup`)
+  const codeql = api(`repos/${repo}/code-scanning/default-setup`)
   if (!codeql.ok) add('codeql', 'warn', `unverified: ${codeql.error}`)
   else add('codeql', codeql.data.state === 'configured' ? 'pass' : 'fail', `default setup ${codeql.data.state}`)
+  const fixes = api(`repos/${repo}/automated-security-fixes`)
+  if (!fixes.ok) add('dependabot-updates', 'warn', `unverified: ${fixes.error}`)
+  else add('dependabot-updates', fixes.data.enabled ? 'warn' : 'pass', fixes.data.enabled ? 'Dependabot security updates open pull requests next to Renovate; turn them off (alerts stay on)' : 'Dependabot security updates off')
 
-  // 17. Latest published versions carry provenance.
+  // 18. The versions behind `latest` and `next` carry provenance, and the tags are not stale.
   if (publishes) {
-    const missingProvenance = []
+    const notes = []
     for (const name of publicPackages(src)) {
-      const response = await fetch(`https://registry.npmjs.org/${name.replace('/', '%2F')}/latest`, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
-      if (!response?.ok) continue
-      const latest = await response.json()
-      if (!latest.dist?.attestations?.provenance) missingProvenance.push(`${name}@${latest.version}`)
+      const [latest, next] = await Promise.all([registry(name, 'latest'), registry(name, 'next')])
+      for (const [tag, manifest] of [['latest', latest], ['next', next]]) {
+        if (manifest && !manifest.dist?.attestations?.provenance) notes.push(`${name}@${manifest.version} (${tag}) has no provenance (fine only for a bootstrap version)`)
+      }
+      if (latest && next) {
+        // A release line is what a caret range covers: one major, or one minor before 1.0.
+        const [major, minor] = next.version.split('.').map(Number)
+        const line = major > 0 ? `${major}.0.0` : `0.${minor}.0`
+        if (compareVersions(latest.version, line) < 0) notes.push(`${name}: latest ${latest.version} is older than next's line ${line.replace(/(\.0)+$/, '.x')} (expected only while that line is in prerelease)`)
+        else if (compareVersions(next.version, latest.version) < 0) notes.push(`${name}: next ${next.version} is behind latest ${latest.version} (npm dist-tag rm ${name} next)`)
+      }
     }
-    add('provenance', missingProvenance.length ? 'warn' : 'pass', missingProvenance.length ? `no provenance: ${list(missingProvenance)} (fine only for a bootstrap version)` : 'latest versions have provenance')
+    add('provenance', notes.length ? 'warn' : 'pass', notes.length ? list(notes) : 'latest and next have provenance and are current')
   }
   return results
 }

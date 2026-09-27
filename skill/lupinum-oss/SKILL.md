@@ -48,14 +48,20 @@ that need the maintainer (npm trusted publisher and publishing access, Vercel
 project, GitHub App installs, first publication) with links to the handbook.
 
 **Change a library.** Follow its `AGENTS.md`. Add a changeset for every
-user-facing change, written as the "Releasing" page says. Run `pnpm verify`
-before you hand off.
+user-facing change, written as the "Releasing" page says; a change to
+`dependencies` or `peerDependencies` of a published package needs one that
+bumps that package. Run `pnpm verify` before you hand off. When the maintainer
+asks you to complete someone else's pull request that lacks a changeset,
+push one to its branch.
 
 **Release.** Releases are the maintainer's two clicks. You may prepare
-changesets, review the Version packages pull request (it may change only
-versions, `CHANGELOG.md` files and `.changeset/`), and diagnose failures
-with "Releasing → When publishing fails" and "Troubleshooting". Hand the
-approval back to the maintainer.
+changesets, review the Version packages pull request (`release.yml` rejects
+anything but `package.json` versions, `CHANGELOG.md` files and changeset
+files), and diagnose
+failures with "Releasing → When publishing fails" and "Troubleshooting". A
+manual run of `release.yml` only re-offers a release already versioned on
+`main`. Hand the approval, and any `npm dist-tag` change, back to the
+maintainer.
 
 **Dependencies and security.** Use the "Dependencies" and "Security" pages.
 Never bypass the quarantine silently; an exclusion is one exact version, with

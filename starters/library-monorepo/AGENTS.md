@@ -27,10 +27,13 @@ consuming projects read documentation that matches the installed version.
 - Never add `NPM_TOKEN` or any other long-lived publish credential.
 - Add a changeset (`pnpm changeset`) to every pull request that changes what
   users see. CI requires one when `packages/*/src/` changes; use
-  `pnpm changeset --empty` if users see nothing.
-- Changeset style: one line in present tense that starts with Fix, Add, Remove
-  or Change and says what changed for users. A major change adds a second line
-  that starts with `Migration:` and says what users must do.
+  `pnpm changeset --empty` if users see nothing. A change to `dependencies` or
+  `peerDependencies` of a published package needs a changeset that bumps that
+  package (at least patch).
+- Changeset style: one summary line in present tense that starts with Fix, Add,
+  Remove or Change and says what changed for users. A short body may follow
+  after a blank line. A major change adds a line that starts with `Migration:`
+  and says what users must do.
 - A new package joins the `fixed` group in `.changeset/config.json`. Its first
   npm version is published by the maintainer (see the Lupinum OSS handbook).
 - Do not bypass the 24-hour dependency quarantine (`minimumReleaseAge`). Do not
