@@ -197,7 +197,9 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   if (publishes) {
     const release = workflows.get('release.yml')
     const problems = []
-    const publishJobs = Object.entries(release?.data?.jobs ?? {}).filter(([, job]) => steps(job).some(step => /\bnpm publish\b/.test(step?.run ?? '')))
+    // A `--dry-run` rehearsal publishes nothing, so only real publish lines count.
+    const realPublish = run => run.split('\n').some(line => /\bnpm publish\b/.test(line) && !/--dry-run\b/.test(line))
+    const publishJobs = Object.entries(release?.data?.jobs ?? {}).filter(([, job]) => steps(job).some(step => realPublish(step?.run ?? '')))
     if (!release) problems.push('release.yml missing')
     else if (!publishJobs.length) problems.push('no job in release.yml runs npm publish')
     for (const [id, job] of publishJobs) {
@@ -208,7 +210,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
         if (/actions\/checkout@/.test(step?.uses ?? '')) problems.push(`${id}: checks out the repository`)
         const run = step?.run ?? ''
         if (/\b(pnpm|npm|yarn)\s+(install|i|ci|add|run|exec|dlx)\b|\bnpx\b/.test(run)) problems.push(`${id}: installs or runs repository code`)
-        if (/\bnpm publish\b/.test(run)) {
+        if (realPublish(run)) {
           for (const flag of ['--provenance', '--ignore-scripts', '--access public']) if (!run.includes(flag)) problems.push(`${id}: npm publish without ${flag}`)
         }
       }

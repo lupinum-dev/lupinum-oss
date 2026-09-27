@@ -77,3 +77,10 @@ test('an extra workflow named in DECISIONS.md passes', () => {
   const extra = { '.github/workflows/extra.yml': 'on: push\npermissions: {}\njobs: {}\n' }
   assert.equal(audit({ ...extra, 'DECISIONS.md': '- D2 (2026-09-27): Keep extra.yml — it runs a slow weekly check.' }).workflows.status, 'pass')
 })
+
+test('a publish dry run outside the npm environment passes; a real publish there fails', () => {
+  const release = library['.github/workflows/release.yml']
+  const pack = `  pack:\n    runs-on: ubuntu-24.04\n    permissions: { contents: read }\n    steps:\n      - uses: actions/checkout@${sha}\n      - run: npm publish ./package.tgz --dry-run --access public --ignore-scripts --tag next\n`
+  assert.equal(audit({ '.github/workflows/release.yml': `${release}${pack}` })['publish-job'].status, 'pass')
+  assert.equal(audit({ '.github/workflows/release.yml': `${release}${pack.replace(' --dry-run', '')}` })['publish-job'].status, 'fail')
+})
