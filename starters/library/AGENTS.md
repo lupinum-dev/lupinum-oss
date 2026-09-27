@@ -25,8 +25,9 @@ projects read documentation that matches the installed version.
   protected `npm` environment.
 - Never add `NPM_TOKEN` or any other long-lived publish credential.
 - Add a changeset (`pnpm changeset`) to every pull request that changes what
-  users see. CI requires one when `src/` changes; use `pnpm changeset --empty`
-  if users see nothing. A change to `dependencies` or `peerDependencies` of a
+  package users install: code, types, runtime behaviour or dependencies.
+  Documentation, tests and CI changes need none. CI requires one when `src/`
+  changes; use `pnpm changeset --empty` if users see nothing. A change to `dependencies` or `peerDependencies` of a
   published package needs a changeset that bumps that package (at least patch).
 - Changeset style: one summary line in present tense that starts with Fix, Add,
   Remove or Change and says what changed for users. A short body may follow

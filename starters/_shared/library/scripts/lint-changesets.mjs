@@ -39,7 +39,8 @@ if (base) {
     .filter(path => existsSync(path)).map(path => ({ path, now: JSON.parse(readFileSync(path, 'utf8')) }))
   const internal = new Set(manifests.map(({ now }) => now.name)) // Changesets itself bumps these ranges
   const external = deps => JSON.stringify(Object.entries(deps ?? {}).filter(([name]) => !internal.has(name)).sort())
-  const added = git('diff', '--name-only', '--diff-filter=A', `${base}...HEAD`, '--', '.changeset').stdout.split('\n').filter(path => path.endsWith('.md'))
+  // Added or edited changesets count; archived ones under .changeset/pre/ do not release.
+  const added = git('diff', '--name-only', '--diff-filter=AM', `${base}...HEAD`, '--', '.changeset').stdout.split('\n').filter(path => /^\.changeset\/[^/]+\.md$/.test(path))
   const bumped = new Set(added.filter(path => existsSync(path)).flatMap(path => bumps(/^---\r?\n([\s\S]*?)^---/m.exec(readFileSync(path, 'utf8'))?.[1] ?? '')).map(({ name }) => name))
   for (const { path, now } of manifests) {
     if (now.private || !changed.includes(path)) continue
