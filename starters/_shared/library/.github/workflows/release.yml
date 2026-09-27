@@ -46,9 +46,10 @@ jobs:
           commitMode: github-api
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # Offer a release whenever no Version packages PR is open (empty changesets open none).
       # A manual run re-offers a rejected or failed release even while changesets are pending.
       - id: check
-        if: steps.changesets.outputs.hasChangesets == 'false' || github.event_name == 'workflow_dispatch'
+        if: steps.changesets.outputs.pullRequestNumber == '' || github.event_name == 'workflow_dispatch'
         run: node scripts/release.mjs check
 
   # Pull requests opened with GITHUB_TOKEN start no workflows, so start ci here. This job
@@ -84,6 +85,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: node scripts/release.mjs pack
+      # Rehearse the publish command on the exact tarballs, so a broken publish fails before
+      # the maintainer is asked to approve. Needs no credentials.
+      - run: |
+          for tarball in ./release/*.tgz; do
+            npm publish "$tarball" --dry-run --access public --ignore-scripts --tag next
+          done
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: release
@@ -110,7 +117,7 @@ jobs:
       # Skips versions already on npm, so "Re-run failed jobs" is safe after a partial publish.
       # Versions with a `-` (prereleases) go to `next`, all others to `latest`.
       - run: |
-          for tarball in release/*.tgz; do
+          for tarball in ./release/*.tgz; do
             version="$(tar -xOzf "$tarball" package/package.json | jq -r .version)"
             spec="$(tar -xOzf "$tarball" package/package.json | jq -r .name)@$version"
             if npm view "$spec" version > /dev/null 2>&1; then echo "$spec is already on npm"; continue; fi
