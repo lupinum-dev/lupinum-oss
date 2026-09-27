@@ -315,7 +315,7 @@ export function compareVersions(a, b) {
 
 // The version manifest behind a dist-tag, or null when the tag does not exist.
 async function registryTag(name, tag) {
-  const response = await fetch(`https://registry.npmjs.org/${name.replace('/', '%2F')}/${tag}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
+  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${tag}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
   return response?.ok ? response.json() : null
 }
 
