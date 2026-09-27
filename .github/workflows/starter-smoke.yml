@@ -1,127 +1,47 @@
-name: Starter smoke
+name: starter smoke
 
+# Generates every starter and runs its own `pnpm verify` from a clean install.
+# The weekly run catches upstream breakage before someone starts a new repository.
 on:
   pull_request:
+    paths:
+      - starters/**
+      - scripts/verify-starters.mjs
+      - .github/workflows/starter-smoke.yml
   push:
     branches: [main]
-  workflow_dispatch:
+    paths:
+      - starters/**
+      - scripts/verify-starters.mjs
+      - .github/workflows/starter-smoke.yml
   schedule:
     - cron: '17 4 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: starter-smoke-${{ github.workflow }}-${{ github.ref }}
+  group: starter-smoke-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  classify:
-    name: Classify changes
+  starter:
+    name: starter (${{ matrix.starter }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    permissions:
-      pull-requests: read
-    outputs:
-      starters: ${{ steps.paths.outputs.starters }}
-    steps:
-      - name: Select required lanes
-        id: paths
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          script: |
-            const runAll = context.eventName !== 'pull_request'
-            const files = runAll
-              ? []
-              : await github.paginate(github.rest.pulls.listFiles, {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: context.issue.number,
-                  per_page: 100,
-                })
-            const paths = files.map((file) => file.filename)
-            const starterUnrelated =
-              paths.length > 0 &&
-              paths.every((path) =>
-                /^(?:docs\/|skill\/|README\.md$|CONTRIBUTING\.md$|SECURITY\.md$|MAINTAINING\.md$|AGENTS\.md$|CLAUDE\.md$|LICENSE$)/u.test(path),
-              )
-            core.setOutput('starters', String(runAll || !starterUnrelated))
-
-  verify:
-    name: Verify ${{ matrix.profile }} starter
-    needs: classify
-    if: needs.classify.outputs.starters == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        profile: [library, library-monorepo, app]
+        starter: [library, library-monorepo, app]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24.18.0
+          node-version: 24
           package-manager-cache: false
-      - name: Materialize starter
-        env:
-          OUTPUT: ${{ runner.temp }}/generated
-          PROFILE: ${{ matrix.profile }}
-        run: |
-          common=(--output "$OUTPUT" --name "test-$PROFILE" --title "Test $PROFILE" --description "A generated contract test." --repository "lupinum-dev/test-$PROFILE" --domain "test-$PROFILE.lupinum.com" --plausible test-script-id)
-          case "$PROFILE" in
-            library)
-              node starters/library/setup.mjs "${common[@]}" --package @lupinum/test-library
-              ;;
-            library-monorepo)
-              node starters/library-monorepo/setup.mjs "${common[@]}" --package @lupinum/test-core --package @lupinum/test-vue --package @lupinum/test-nuxt --primary @lupinum/test-vue
-              ;;
-            app)
-              node starters/app/setup.mjs "${common[@]}"
-              ;;
-          esac
-      - name: Install generated project
-        working-directory: ${{ runner.temp }}/generated
-        run: |
-          corepack enable pnpm
-          corepack prepare pnpm@11.21.0 --activate
-          pnpm install
-      - name: Create source commit
-        working-directory: ${{ runner.temp }}/generated
-        run: |
-          git init -b main
-          git config user.name "Lupinum OSS CI"
-          git config user.email "ci@lupinum.com"
-          git add .
-          git commit -m "test: materialize starter"
-      - name: Verify generated project and release contract
-        if: matrix.profile != 'app'
-        working-directory: ${{ runner.temp }}/generated
-        run: GITHUB_SHA="$(git rev-parse HEAD)" pnpm release:verify
-      - name: Verify generated application
-        if: matrix.profile == 'app'
-        working-directory: ${{ runner.temp }}/generated
-        run: pnpm verify
-      - name: Exercise fixed-set prerelease and stable preparation
-        if: matrix.profile == 'library-monorepo'
-        run: node scripts/test-fixed-release.mjs "${{ runner.temp }}/generated"
-
-  gate:
-    name: Starter smoke
-    if: always()
-    needs:
-      - classify
-      - verify
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    steps:
-      - name: Require every starter profile to pass
-        env:
-          CLASSIFY_RESULT: ${{ needs.classify.result }}
-          STARTERS: ${{ needs.classify.outputs.starters }}
-          MATRIX_RESULT: ${{ needs.verify.result }}
-        run: |
-          test "$CLASSIFY_RESULT" = success
-          if [ "$STARTERS" = true ]; then test "$MATRIX_RESULT" = success; else test "$MATRIX_RESULT" = skipped; fi
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/verify-starters.mjs ${{ matrix.starter }}

@@ -1,0 +1,9 @@
+node_modules
+dist
+release
+.nuxt
+.output
+.vercel
+.env*
+!.env.example
+.DS_Store

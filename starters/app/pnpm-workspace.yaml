@@ -1,9 +1,8 @@
-packages: []
-
+# Dependency quarantine: never install versions younger than 24 hours.
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
-minimumReleaseAgeIgnoreMissingTime: false
 
+# Only these dependencies may run install scripts.
 allowBuilds:
   '@parcel/watcher': true
   esbuild: true

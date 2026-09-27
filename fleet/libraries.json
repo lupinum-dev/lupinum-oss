@@ -1,62 +1,13 @@
 {
-  "$schema": "./libraries.schema.json",
-  "version": 2,
-  "releaseHistoryCutoff": "2026-08-20T00:00:00.000Z",
   "repositories": [
-    {
-      "repository": "lupinum-dev/lupinum-oss",
-      "vercelProject": "lupinum-oss",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "none",
-      "canary": true
-    },
-    {
-      "repository": "lupinum-dev/better-convex",
-      "vercelProject": "better-convex",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "independent-family"
-    },
-    {
-      "repository": "lupinum-dev/ginko-content",
-      "vercelProject": "ginko-content",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "single-package"
-    },
-    {
-      "repository": "lupinum-dev/ginko-docs",
-      "vercelProject": "ginko-docs",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "single-package"
-    },
-    {
-      "repository": "lupinum-dev/nuxt-board",
-      "vercelProject": "nuxt-board",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "fixed-package-set"
-    },
-    {
-      "repository": "lupinum-dev/nuxt-email",
-      "vercelProject": "nuxt-email",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "single-package"
-    },
-    {
-      "repository": "lupinum-dev/nuxt-pdf",
-      "vercelProject": "nuxt-pdf-docs",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "single-package"
-    },
-    {
-      "repository": "lupinum-dev/nuxt-photo",
-      "vercelProject": "nuxt-photo-docs",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "fixed-package-set"
-    },
-    {
-      "repository": "lupinum-dev/nuxt-tour",
-      "vercelProject": "nuxt-tour",
-      "policy": "library-docs-on-demand",
-      "releaseProfile": "single-package"
-    }
+    "lupinum-dev/lupinum-oss",
+    "lupinum-dev/better-convex",
+    "lupinum-dev/ginko-content",
+    "lupinum-dev/ginko-docs",
+    "lupinum-dev/nuxt-board",
+    "lupinum-dev/nuxt-email",
+    "lupinum-dev/nuxt-pdf",
+    "lupinum-dev/nuxt-photo",
+    "lupinum-dev/nuxt-tour"
   ]
 }

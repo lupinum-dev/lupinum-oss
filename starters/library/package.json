@@ -17,34 +17,30 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": ["dist", "CHANGELOG.md"],
   "publishConfig": { "access": "public" },
   "scripts": {
-    "check:dependencies": "node scripts/check-dependency-policy.mjs",
-    "audit:all": "pnpm audit",
-    "build": "tsup src/index.ts --format esm --dts --clean",
-    "docs:build": "pnpm --dir docs build",
-    "docs:package": "node scripts/build-agent-docs.mjs",
-    "dev": "pnpm build && pnpm docs:dev",
-    "docs:dev": "pnpm --dir docs dev",
-    "lint": "eslint .",
-    "pack:release": "node scripts/pack-release.mjs",
-    "preview:pack": "node scripts/pack-release.mjs --preview",
-    "release:prepare": "changelogen --bump --clean",
-    "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release && node scripts/verify-packed-consumer.mjs",
-    "test": "vitest run",
+    "dev": "tsup src/index.ts --format esm --dts --watch",
+    "build": "tsup src/index.ts --format esm --dts --clean && pnpm docs:build && node scripts/agent-docs.mjs && publint",
+    "lint": "eslint . && node scripts/lint-changesets.mjs",
+    "format": "eslint . --fix",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm check:dependencies && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm docs:build && pnpm docs:package"
+    "test": "vitest run",
+    "docs:dev": "pnpm --dir docs dev",
+    "docs:build": "pnpm --dir docs build",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm audit --audit-level=high",
+    "changeset": "changeset"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "1.0.1",
+    "@changesets/cli": "3.0.3",
     "@eslint/js": "10.0.1",
     "@types/node": "26.1.1",
-    "changelogen": "0.6.2",
     "eslint": "^10.4.1",
     "pkg-pr-new": "0.0.87",
+    "publint": "0.3.24",
     "tsup": "^8.5.1",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.8",
-    "yaml": "2.9.0"
+    "vitest": "^4.1.8"
   }
 }

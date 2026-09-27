@@ -1,65 +1,47 @@
-# Working on Lupinum OSS
+# Lupinum OSS
 
-This repository is the public source for the Lupinum OSS handbook, repository starters, and Codex skill.
-
-It governs the public library fleet. Customer application operations and a
-central release service are outside its scope. Read [MAINTAINING.md](MAINTAINING.md)
-for setup, delegated work, verification, review, and recovery. Preserve existing
-work, define observable acceptance criteria, and complete the authorized task
-through post-merge verification and cleanup.
-
-## Ownership
-
-- `docs/` explains the fleet-wide standard and public procedures.
-- `starters/` contains complete, tested repository starting points.
-- `skill/lupinum-oss/` is a thin operator that reads the handbook and repository-local instructions.
-- `scripts/` checks objective contracts. It must not judge prose quality as if it were formal ASD-STE100 certification.
-
-Do not duplicate detailed policy in the skill or starter documentation. The handbook explains fleet policy. A generated repository remains self-contained through its own `AGENTS.md` and `MAINTAINING.md`.
+The public standard for Lupinum libraries: the handbook (`docs/`, published at
+https://oss.lupinum.com), repository starters (`starters/`), the read-only
+audit (`scripts/audit.mjs`), the agent skill (`skill/lupinum-oss/`) and the
+list of governed repositories (`fleet/libraries.json`). This repository does
+not publish to npm.
 
 ## Commands
 
 ```bash
-pnpm verify
-pnpm docs:build
-pnpm audit:all
-pnpm release:verify
-pnpm shared:check
-pnpm fleet:check
-pnpm fleet:release-check
+pnpm install
+pnpm dev                          # handbook at the URL Nuxt prints
+pnpm verify                       # exactly what ci.yml runs: pnpm audit, pnpm test, pnpm build
+pnpm audit:repos                  # audit every repository in fleet/libraries.json (read-only, uses gh)
+pnpm audit:repos OWNER/REPO       # audit one repository
+node scripts/audit.mjs --local ../some-repo   # file checks only, no GitHub access
+node scripts/verify-starters.mjs [library|library-monorepo|app]   # generate and verify starters (slow)
 ```
 
-Run `pnpm verify` before handoff. Run `pnpm release:verify` before a tagged release of this handbook repository.
+`pnpm audit` is pnpm's dependency audit; the repository audit is `pnpm audit:repos`.
+Run `verify-starters.mjs` when you change `starters/`; the starter smoke workflow runs it too.
 
-## Invariants
+## Hard rules
 
-- Keep this repository private to npm: it does not publish a package.
-- Do not add `NPM_TOKEN`.
-- Do not add a central publication service or shared runtime package.
-- Keep starter publication workflows local and reviewable.
-- Maintain the dependency policy checker once in
-  `starters/_shared/check-dependency-policy.mjs`. Run `pnpm shared:sync` and
-  commit the repository-owned root and starter copies.
-- Maintain the on-demand Vercel preview workflow once in
-  `starters/_shared/vercel-preview.yml`. Run `pnpm shared:sync` after changes
-  and commit the exact repository-owned copies.
-- Maintain package documentation packaging in
-  `starters/_shared/package-agent-docs.mjs`. Run `pnpm shared:sync` and
-  commit both library starter copies. The same sync command maintains
-  README and website onboarding blocks from
-  `starters/_shared/consumer-onboarding.md`.
-- Keep `fleet/libraries.json` limited to public libraries governed by this
-  standard. Do not add customer applications or duplicate repository-local
-  package inventories or build configuration there.
-- Pin GitHub Actions to full commit SHAs.
-- Use `docs/` as the Vercel Root Directory. Keep `vercel.json` in `docs/` and
-  enable source files outside the Root Directory because the site uses this
-  pnpm workspace.
-- Keep the npm bootstrap ceremony explicit. Do not pretend the first package version has OIDC provenance.
-- Use `latest` for stable releases and `next` for prereleases.
-- Do not silently bypass the 24-hour dependency quarantine.
-- Do not use special `codex/*` or `claude/*` branch rules.
+- Never push to `main`; open a pull request. Never publish anything.
+- The audit only reads. Do not add code that changes GitHub, npm or Vercel settings.
+- Keep tooling lean: a check or script is allowed only if it guards behavior a
+  user relies on or a real attack path. See `docs/content/docs/6.adding-tooling.md`.
+- A change to the standard updates the handbook, the starters and the audit
+  together, and adds an entry to `DECISIONS.md`.
+- Never add `NPM_TOKEN`, a Vercel token or any other long-lived credential to a
+  workflow or starter.
+- Pin GitHub Actions by full commit SHA; give each job only the permissions it needs.
 
-## GitHub CLI authentication
+## Principles
 
-A failed sandboxed `gh auth status` is not proof that authentication expired. Retry `gh auth status -h github.com` and `gh api user` with elevated access before asking the user to log in again. Never copy a GitHub token into files or environment variables to bypass macOS Keychain access.
+- The handbook stays at about seven pages. Procedures live there, not in each
+  library repository. When a page or heading moves, add the old path to
+  `redirectFrom` (see `docs/WRITING.md`).
+- Starters produce repositories that work without this repository.
+- The skill is a thin pointer to the handbook and the audit; do not copy policy into it.
+- Repository settings follow the handbook's "Set up a repository" page, minus
+  the npm parts: ruleset with the required `ci` check, secret scanning with
+  push protection, CodeQL default setup (no CodeQL workflow file).
+- Vercel deploys `docs/` through its Git integration (Root Directory `docs`,
+  files outside the root included); `docs/vercel.json` holds the build and ignore commands.

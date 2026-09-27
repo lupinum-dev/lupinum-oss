@@ -9,25 +9,19 @@ reviews:
   poem: false
   review_status: true
   path_filters:
-    - '!release-artifacts/**'
-    - '!reports/**'
-    - '!test-results/**'
     - '!**/*.png'
     - '!**/*.woff'
     - '!**/*.woff2'
   path_instructions:
     - path: '.github/workflows/**'
       instructions: |
-        Review permission boundaries, untrusted shell input, immutable action pins, artifact identity, source commit binding, and OIDC isolation. A token-capable publication or repository-write job must not install dependencies or run repository code.
+        Check least-privilege permissions per job, full-SHA action pins, untrusted input in shell, and that no job both installs dependencies and holds publish rights. No npm or Vercel tokens.
     - path: 'starters/**'
       instructions: |
-        Review generated output as a real new repository. Require atomic generation, safe escaping, tested package consumers, dependency quarantine, and isolated trusted publishing.
+        Review generated output as a real new repository. It must follow the handbook in docs/content/docs and stay lean: no scripts or checks that do not guard user-facing behavior or a real attack path.
     - path: '**/*.md'
       instructions: |
-        Follow the repository writing guide and its explicit exemptions. Use short sentences and American English. Do not rewrite code, API names, legal text, quotations, changelog history, generated reports, or historical evidence.
-    - path: '**/*.test.*'
-      instructions: |
-        Prefer invariant and failure tests. Check that the test fails before the fix and proves the public contract.
+        Follow docs/WRITING.md: plain, direct American English, short sentences, exact commands.
   auto_review:
     enabled: true
     drafts: false

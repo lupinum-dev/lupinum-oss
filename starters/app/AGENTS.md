@@ -1,30 +1,32 @@
-# Working on {{TITLE}}
+# {{TITLE}}
 
-{{DESCRIPTION}}
+{{DESCRIPTION}} A Nuxt application deployed to [{{DOMAIN}}](https://{{DOMAIN}})
+by Vercel's Git integration. It publishes no npm package.
 
-## Architecture
+## Commands
 
-- `app/` owns the Nuxt application and user interface.
-- `public/` owns static public assets.
-- `test/` verifies application invariants.
-- This repository deploys an application. It does not publish an npm package.
+```bash
+pnpm install
+pnpm dev          # local development server
+pnpm test
+pnpm format       # apply lint fixes
+pnpm verify       # exactly what CI runs: lint, typecheck, test, build, audit
+```
 
-## Working procedure
+## Hard rules
 
-Read [MAINTAINING.md](MAINTAINING.md) for setup, commands, authority, and recovery.
-Inspect existing work and define observable acceptance criteria. Make the smallest
-complete change. Run focused checks, explore user-facing changes in a real browser,
-and run `pnpm verify` before handoff. Obtain review, complete the authorized merge,
-verify the result, and clean up only your own processes and disposable files.
+- Never push to `main`. Every change goes through a pull request with a green `ci` check.
+- Keep secrets in Vercel environment variables. Never put server-only values in
+  `runtimeConfig.public` or in the repository.
+- Do not add npm publishing workflows or `NPM_TOKEN`.
+- Do not bypass the 24-hour dependency quarantine (`minimumReleaseAge`). Do not
+  add dependencies to `allowBuilds` without a reason.
+- Pin GitHub Actions to full commit SHAs. Give each job only the permissions it needs.
+- Keep tooling lean. Add a script, check or workflow only when it guards
+  behaviour users rely on or closes a real attack path. Process is not security.
+- Record lasting choices in [DECISIONS.md](DECISIONS.md).
 
-Keep versions, exports, and command definitions in package manifests. Update
-instructions with behavior; remove the obsolete instructions in the same change.
+## Principles
 
-## Invariants
-
-- Keep server-only values out of public runtime configuration.
-- Do not add npm publication workflows or `NPM_TOKEN`.
-- Do not bypass the 24-hour dependency quarantine. An urgent exception must name one exact version, reason, and removal time.
-- Do not use special `codex/*` or `claude/*` branches.
-- Keep public text in Lupinum Controlled English, based on ASD-STE100.
-- Verify production behavior in a real browser after deployment.
+- `app/` holds the user interface, `public/` static files, `test/` tests.
+- Check user-facing changes in a real browser, on the Vercel preview of the pull request.

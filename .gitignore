@@ -7,6 +7,5 @@ node_modules/
 .ginko/
 dist/
 coverage/
-/release-artifacts/
 *.log
 .DS_Store
