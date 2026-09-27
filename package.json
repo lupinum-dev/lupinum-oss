@@ -4,32 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm docs:dev",
+    "dev": "pnpm --dir docs dev",
     "build": "pnpm docs:build",
-    "check:dependencies": "node scripts/check-dependency-policy.mjs",
-    "audit:all": "pnpm audit",
-    "check:standard": "node scripts/check-standard.mjs",
     "docs:build": "node scripts/clean-docs-output.mjs && pnpm --dir docs build && node scripts/verify-docs-output.mjs",
-    "docs:dev": "pnpm --dir docs dev",
-    "fleet:audit": "node scripts/audit-fleet.mjs",
-    "fleet:check": "node scripts/test-fleet-audit.mjs",
-    "fleet:release-audit": "node scripts/audit-fleet-release.mjs",
-    "fleet:release-check": "node scripts/test-fleet-release-audit.mjs",
-    "release:verify": "pnpm verify",
-    "shared:check": "node scripts/shared-assets.mjs",
-    "shared:sync": "node scripts/shared-assets.mjs --write",
-    "skill:validate": "node scripts/validate-skill.mjs",
-    "starters:publish-policy": "node scripts/test-starter-publish-policy.mjs",
-    "starters:verify": "node scripts/verify-starters.mjs",
-    "test:dependency-policy": "node scripts/test-dependency-policy.mjs",
-    "test:docs-output": "node scripts/test-docs-output.mjs",
-    "test:url-contract": "node scripts/test-url-contract.mjs",
-    "verify": "pnpm check:dependencies && pnpm test:dependency-policy && pnpm audit:all && pnpm test:url-contract && pnpm test:docs-output && pnpm test:package-docs && pnpm shared:check && pnpm fleet:check && pnpm fleet:release-check && pnpm check:standard && pnpm skill:validate && pnpm starters:verify && pnpm starters:publish-policy && pnpm docs:build",
-    "test:package-docs": "node scripts/test-package-agent-docs.mjs"
+    "test": "node --test \"scripts/*.test.mjs\" && node scripts/audit.mjs --local .",
+    "verify": "pnpm audit --audit-level=high && pnpm test && pnpm build",
+    "audit:repos": "node scripts/audit.mjs"
   },
   "devDependencies": {
-    "changelogen": "0.6.2",
-    "sigstore": "5.0.0",
     "yaml": "2.9.0"
   },
   "packageManager": "pnpm@11.21.0"

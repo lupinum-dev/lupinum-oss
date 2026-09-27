@@ -5,33 +5,26 @@
   "type": "module",
   "packageManager": "pnpm@11.21.0",
   "scripts": {
-    "check:dependencies": "node scripts/check-dependency-policy.mjs",
-    "audit:all": "pnpm audit",
-    "changeset": "changeset",
-    "build": "pnpm --filter './packages/*' -r build",
-    "docs:build": "pnpm build && pnpm --dir docs build",
-    "dev": "pnpm build && pnpm docs:dev",
-    "docs:dev": "pnpm --dir docs dev",
-    "lint": "eslint .",
-    "pack:release": "node scripts/pack-release.mjs",
-    "preview:pack": "node scripts/pack-release.mjs --preview",
-    "release:prepare": "node scripts/prepare-release.mjs",
-    "release:verify": "pnpm audit:all && pnpm verify && pnpm pack:release && node scripts/verify-packed-consumer.mjs",
-    "test": "vitest run",
+    "dev": "pnpm -r --parallel --filter './packages/*' dev",
+    "build": "pnpm -r --filter './packages/*' build && pnpm docs:build && node scripts/agent-docs.mjs && pnpm -r --filter './packages/*' exec publint",
+    "lint": "eslint . && node scripts/lint-changesets.mjs",
+    "format": "eslint . --fix",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm check:dependencies && pnpm lint && pnpm build && pnpm typecheck && pnpm test && pnpm --dir docs build && pnpm docs:package",
-    "docs:package": "node scripts/build-agent-docs.mjs"
+    "test": "vitest run",
+    "docs:dev": "pnpm --dir docs dev",
+    "docs:build": "pnpm --dir docs build",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm audit --audit-level=high",
+    "changeset": "changeset"
   },
   "devDependencies": {
-    "@changesets/cli": "2.31.0",
+    "@changesets/changelog-github": "1.0.1",
+    "@changesets/cli": "3.0.3",
     "@eslint/js": "10.0.1",
     "@types/node": "26.1.1",
-    "changelogen": "0.6.2",
     "eslint": "^10.4.1",
     "pkg-pr-new": "0.0.87",
-    "tsup": "^8.5.1",
+    "publint": "0.3.24",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.8",
-    "yaml": "2.9.0"
+    "vitest": "^4.1.8"
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createItem } from '../packages/{{PRIMARY_PACKAGE_DIR}}/src/index.js'
+import { greet } from '../packages/{{PRIMARY_PACKAGE_DIR}}/src/index.js'
 
-describe('package set', () => {
-  it('shares one public contract', () => expect(createItem('one', 'One')).toEqual({ id: 'one', label: 'One' }))
+describe('greet', () => {
+  it('returns a stable greeting', () => expect(greet('Lupinum')).toBe('Hello, Lupinum.'))
 })

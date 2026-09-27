@@ -1,32 +1,45 @@
-# Working on {{TITLE}}
+# {{TITLE}}
 
-{{DESCRIPTION}}
+{{DESCRIPTION}} Published to npm as `{{PACKAGE_NAME}}`.
 
-## Architecture
+## Commands
 
-- `src/` owns the public library implementation.
-- `test/` verifies public behavior and failure boundaries.
-- `docs/` owns public documentation. Release verification separately tests packed consumers.
-- `scripts/` owns inert package certification. It does not publish.
+```bash
+pnpm install
+pnpm dev          # rebuild the package on change
+pnpm docs:dev     # run the documentation site
+pnpm test
+pnpm format       # apply lint fixes
+pnpm verify       # exactly what CI runs: lint, typecheck, test, build, audit
+pnpm changeset    # describe a user-facing change for the next release
+```
 
-## Working procedure
+`pnpm build` builds the package, the docs site and `dist/agent/`, a copy of the
+rendered docs that ships as `{{PACKAGE_NAME}}/agent-docs` so agents in consuming
+projects read documentation that matches the installed version.
 
-Read [MAINTAINING.md](MAINTAINING.md) for setup, commands, authority, and recovery.
-Inspect existing work and define observable acceptance criteria. Make the smallest
-complete change. Run focused checks, explore user-facing changes in a real browser,
-and run `pnpm verify` before handoff. Obtain review, complete the authorized merge,
-verify the result, and clean up only your own processes and disposable files.
+## Hard rules
 
-Keep versions, exports, and command definitions in package manifests. Update
-instructions with behavior; remove the obsolete instructions in the same change.
+- Never publish to npm, push to `main`, create tags or release by hand. Releases
+  happen when a maintainer merges the "Version packages" PR and approves the
+  protected `npm` environment.
+- Never add `NPM_TOKEN` or any other long-lived publish credential.
+- Add a changeset (`pnpm changeset`) to every pull request that changes what
+  users see. CI requires one when `src/` changes; use `pnpm changeset --empty`
+  if users see nothing.
+- Changeset style: one line in present tense that starts with Fix, Add, Remove
+  or Change and says what changed for users. A major change adds a second line
+  that starts with `Migration:` and says what users must do.
+- Do not bypass the 24-hour dependency quarantine (`minimumReleaseAge`). Do not
+  add dependencies to `allowBuilds` without a reason.
+- Pin GitHub Actions to full commit SHAs. Give each job only the permissions it needs.
+- Keep tooling lean. Add a script, check or workflow only when it guards
+  behaviour users rely on or closes a real attack path. Process is not security.
+- Record lasting choices in [DECISIONS.md](DECISIONS.md).
 
-## Invariants
+## Principles
 
-- Keep one source of truth for public behavior.
-- Do not publish from a workstation after the first npm bootstrap.
-- Do not create tags manually during a normal release.
-- Do not add `NPM_TOKEN`.
-- Do not rename `.github/workflows/publish.yml` without migrating the npm trusted publisher.
-- Do not bypass the 24-hour dependency quarantine. An urgent exception must name one exact version, reason, and removal time.
-- Do not use special `codex/*` or `claude/*` branches.
-- Keep public text in Lupinum Controlled English, based on ASD-STE100. Do not claim formal certification.
+- Keep the public API in `src/index.ts` small. Everything exported is a promise
+  to users.
+- Update `docs/` in the same pull request as the behaviour it describes.
+- Test public behaviour, not internals.

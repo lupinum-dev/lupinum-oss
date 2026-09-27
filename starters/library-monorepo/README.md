@@ -8,21 +8,13 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
-> [!WARNING]
-> This package set is new. Review the release notes before you update it.
-
 ## Why use {{TITLE}}?
 
-Use {{TITLE}} when you need {{DESCRIPTION}}. The packages use one fixed version so compatible releases remain easy to identify.
-
-## When to use it
-
-Install the primary package for the normal product entry point. Install another package only when your application uses that package directly.
+{{DESCRIPTION}} All packages share one version, so compatible releases are easy to identify.
 
 ## Requirements
 
 - Node.js 22.14 or later, Node.js 24, or Node.js 26.
-- pnpm 11 for repository development.
 
 ## Installation
 
@@ -33,50 +25,28 @@ pnpm add {{PRIMARY_PACKAGE}}
 ## Quick start
 
 ```ts
-import { createItem } from '{{PRIMARY_PACKAGE}}'
+import { greet } from '{{PRIMARY_PACKAGE}}'
 
-const item = createItem('one', 'First item')
+console.log(greet('World'))
 ```
 
 ## Packages
 
 {{PACKAGE_LIST_MARKDOWN}}
 
-<!-- BEGIN:consumer-onboarding -->
-## Use a coding agent
-
-A coding agent is a development tool that can inspect and change your project.
-
-Copy this task prompt into your application agent:
-
-```text
-Use the installed {{PRIMARY_PACKAGE}} package to implement my requested feature.
-Read the application's instructions first. Resolve {{PRIMARY_PACKAGE}}/agent-docs
-from this application directory and read the relevant local pages.
-Preserve the existing AGENTS.md. If it has no equivalent guidance, append
-one short note to resolve installed package docs before integration work
-and after dependency changes. Do not install a consumer skill.
-Check the completed feature using this project's normal commands.
-```
-
-The installed documentation matches the package version. If an older version
-has no documentation export, use its README, types and matching release docs.
-<!-- END:consumer-onboarding -->
+{{CONSUMER_ONBOARDING_MARKDOWN}}
 
 ## Documentation
 
-Read the complete documentation at [{{DOMAIN}}](https://{{DOMAIN}}).
+Read the full documentation at [{{DOMAIN}}](https://{{DOMAIN}}).
 
-Vercel deploys the documentation from `docs/`. Enable source files outside the
-Root Directory because the site depends on packages in this workspace.
+## Contributing
 
-## Contributing and development
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request. Maintainers use [MAINTAINING.md](MAINTAINING.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `pnpm verify` before you open a pull request.
 
 ## Support and security
 
-Ask questions in the [Lupinum OSS Discord](https://discord.gg/RPH6SeA36N). Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/{{REPOSITORY}}/security/advisories/new).
+Ask questions in the [Lupinum OSS Discord](https://discord.gg/RPH6SeA36N). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

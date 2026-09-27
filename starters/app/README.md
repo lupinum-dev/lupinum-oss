@@ -9,11 +9,7 @@
 
 ## Why use {{TITLE}}?
 
-{{TITLE}} provides {{DESCRIPTION}}. The application uses Nuxt and deploys as one Vercel project.
-
-## When to use it
-
-Use this repository for the hosted application. Do not add npm publication workflows because this repository does not publish a package.
+{{DESCRIPTION}} The application uses Nuxt and runs at [{{DOMAIN}}](https://{{DOMAIN}}).
 
 ## Requirements
 
@@ -36,17 +32,15 @@ Open the local URL that Nuxt prints.
 
 ## Documentation
 
-The production application is available at [{{DOMAIN}}](https://{{DOMAIN}}). Repository procedures are in [MAINTAINING.md](MAINTAINING.md).
+Vercel deploys `main` to [{{DOMAIN}}](https://{{DOMAIN}}) and every pull request to a preview URL.
 
-Vercel deploys this application from the repository root.
+## Contributing
 
-## Contributing and development
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request. Run `pnpm verify` before review.
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `pnpm verify` before you open a pull request.
 
 ## Support and security
 
-Ask questions in the [Lupinum OSS Discord](https://discord.gg/RPH6SeA36N). Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/{{REPOSITORY}}/security/advisories/new).
+Ask questions in the [Lupinum OSS Discord](https://discord.gg/RPH6SeA36N). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

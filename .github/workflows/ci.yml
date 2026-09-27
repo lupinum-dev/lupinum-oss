@@ -1,46 +1,58 @@
-name: CI
+name: ci
 
 on:
   pull_request:
   push:
     branches: [main]
 
-  schedule:
-    - cron: '23 4 * * *'
-
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event.schedule }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# `pnpm verify` runs the same commands in sequence: pnpm audit, pnpm test, pnpm build.
 jobs:
-  verify:
-    name: Verify
+  test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24.18.0
+          node-version: 24
           package-manager-cache: false
-
       - run: corepack enable
-      - if: github.event.schedule == '23 4 * * *'
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - if: github.event.schedule == '23 4 * * *'
-        run: pnpm check:dependencies
-      - if: github.event.schedule == '23 4 * * *'
-        run: pnpm starters:verify
-      - if: github.event.schedule != '23 4 * * *'
-        run: pnpm install --frozen-lockfile
-      - if: github.event.schedule != '23 4 * * *'
-        run: pnpm verify
-      - name: Verify pinned Actions exist upstream
-        run: node scripts/verify-action-shas.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=high
+      - run: pnpm test
+
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  # The ruleset requires this single check.
+  ci:
+    if: always()
+    needs: [test, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do test "$result" = success; done

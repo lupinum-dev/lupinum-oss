@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # In libraries, release.yml starts this workflow on the Version packages PR,
+  # because pull requests opened with GITHUB_TOKEN trigger no workflows on their own.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: ${{ matrix.task }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in sync with the `verify` script in package.json.
+        task: [lint, typecheck, test, build, audit]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          # lint compares the pull request with origin/main.
+          fetch-depth: ${{ matrix.task == 'lint' && '0' || '1' }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: corepack enable pnpm
+      - if: matrix.task != 'audit'
+        run: pnpm install --frozen-lockfile
+      - if: matrix.task != 'audit'
+        run: pnpm ${{ matrix.task }}
+      # High and critical only: a low-severity advisory deep in the docs site must not block releases.
+      - if: matrix.task == 'audit'
+        run: pnpm audit --audit-level=high
+
+  # The one required status check for the main branch ruleset.
+  ci:
+    name: ci
+    if: always()
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULT: ${{ needs.check.result }}
+        run: test "$RESULT" = success

@@ -3,68 +3,62 @@ import { cp, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { generate, parseArguments, requireValues, validateIdentity, validatePackageName } from '../_shared/generator.mjs'
+import { baseReplacements, consumerOnboarding, generate, parseArguments, validatePackageName } from '../_shared/generator.mjs'
 
-const args = process.argv.slice(2)
-if (args.includes('--help')) {
-  console.log('Usage: node starters/library-monorepo/setup.mjs --output <new-dir> --name <slug> --title <title> --description <text> --repository lupinum-dev/<slug> --domain <slug>.lupinum.com --package @lupinum/<one> --package @lupinum/<two> [--package ...] [--primary @lupinum/<name>] [--plausible <id>]')
-  process.exit(0)
-}
-const { values, lists } = parseArguments(args, {
+const usage = 'Usage: node starters/library-monorepo/setup.mjs --output <new-dir> --name <slug> --title <title> --description <text> --repository lupinum-dev/<slug> --domain <slug>.lupinum.com --package @lupinum/<one> --package @lupinum/<two> [--package ...] [--primary @lupinum/<name>] [--plausible <id>]'
+const { help, values, lists } = parseArguments(process.argv.slice(2), {
   allowed: ['output', 'name', 'title', 'description', 'repository', 'domain', 'package', 'primary', 'plausible'],
+  required: ['output', 'name', 'title', 'description', 'repository', 'domain'],
   repeatable: ['package'],
 })
-requireValues(values, ['output', 'name', 'title', 'description', 'repository', 'domain'])
-validateIdentity({ slug: values.get('name'), repository: values.get('repository'), domain: values.get('domain') })
+if (help) {
+  console.log(usage)
+  process.exit(0)
+}
 const packages = lists.get('package')
 if (packages.length < 2) throw new Error('The monorepo starter requires at least two --package values.')
 for (const packageName of packages) validatePackageName(packageName)
-if (new Set(packages).size !== packages.length) throw new Error('Package names must be unique.')
 const directories = packages.map(name => name.split('/')[1])
+if (new Set(packages).size !== packages.length) throw new Error('Package names must be unique.')
 if (new Set(directories).size !== directories.length) throw new Error('Package names must map to unique directory names.')
-if (directories.includes('package-template')) throw new Error('The package directory name package-template is reserved by the starter.')
-const documentationDependencies = new Set(['@lupinum/ginko-content', '@lupinum/ginko-docs', 'nuxt', 'nuxt-site-config', 'vue', 'vue-router'])
-if (packages.some(name => documentationDependencies.has(name))) throw new Error('A package name collides with a documentation dependency.')
+if (directories.includes('package-template')) throw new Error('The package directory name package-template is reserved.')
 const primary = values.get('primary') ?? packages.at(-1)
 if (!packages.includes(primary)) throw new Error('--primary must name one of the declared packages.')
-const primaryDirectory = directories[packages.indexOf(primary)]
 
 await generate({
   source: dirname(fileURLToPath(import.meta.url)),
+  layers: ['common', 'library'],
   output: values.get('output'),
-  replacements: new Map([
-    ['SLUG', values.get('name')], ['TITLE', values.get('title')], ['DESCRIPTION', values.get('description')],
+  replacements: [
+    ...baseReplacements(values, 'library-monorepo'),
+    ['PRIMARY_PACKAGE', primary], ['PRIMARY_PACKAGE_DIR', directories[packages.indexOf(primary)]],
+    ['PREVIEW_PACKAGES', "'./packages/*'"],
     ['GETTING_STARTED_DESCRIPTION_YAML', `Install ${values.get('title')} and use its primary package.`],
-    ['REPOSITORY', values.get('repository')], ['DOMAIN', values.get('domain')],
-    ['PRIMARY_PACKAGE', primary], ['PRIMARY_PACKAGE_DIR', primaryDirectory],
-    ['PACKAGE_LIST_MARKDOWN', packages.map(name => `- \`${name}\` is an independent package in this fixed-version release set.`).join('\n')],
-    ['PLAUSIBLE_ID', values.get('plausible')?.trim() ?? ''],
-  ]),
+    ['PACKAGE_LIST_MARKDOWN', packages.map(name => `- \`${name}\``).join('\n')],
+    ['CONSUMER_ONBOARDING_MARKDOWN', await consumerOnboarding(primary)],
+  ],
+  // One directory per package, created from packages/package-template.
   prepare: async temporary => {
-    const source = join(temporary, 'packages', 'package-template')
-    for (let index = 0; index < packages.length; index += 1) {
-      const target = join(temporary, 'packages', directories[index])
-      await cp(source, target, { recursive: true })
-      for (const relative of ['package.json', 'README.md']) {
-        const path = join(target, relative)
+    const template = join(temporary, 'packages', 'package-template')
+    for (const [index, directory] of directories.entries()) {
+      const target = join(temporary, 'packages', directory)
+      await cp(template, target, { recursive: true })
+      await cp(join(temporary, 'LICENSE'), join(target, 'LICENSE'))
+      for (const file of ['package.json', 'README.md']) {
+        const path = join(target, file)
         const content = await readFile(path, 'utf8')
-        await writeFile(path, content.replaceAll('{{PACKAGE_NAME}}', packages[index]).replaceAll('{{PACKAGE_DIR}}', directories[index]))
+        await writeFile(path, content.replaceAll('{{PACKAGE_NAME}}', packages[index]).replaceAll('{{PACKAGE_DIR}}', directory))
       }
     }
-    await rm(source, { recursive: true })
+    await rm(template, { recursive: true })
   },
+  // All packages release together with one version.
   finalize: async temporary => {
-    const changesetPath = join(temporary, '.changeset', 'config.json')
-    const changeset = JSON.parse(await readFile(changesetPath, 'utf8'))
-    changeset.fixed = [packages]
-    await writeFile(changesetPath, `${JSON.stringify(changeset, null, 2)}\n`)
-    const path = join(temporary, 'docs', 'package.json')
-    const manifest = JSON.parse(await readFile(path, 'utf8'))
-    manifest.dependencies = Object.fromEntries([
-      ...packages.map(name => [name, 'workspace:*']),
-      ...Object.entries(manifest.dependencies),
-    ])
-    await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`)
+    const path = join(temporary, '.changeset', 'config.json')
+    const config = JSON.parse(await readFile(path, 'utf8'))
+    config.fixed = [packages]
+    await writeFile(path, `${JSON.stringify(config, null, 2)}\n`)
   },
 })
-console.log(`Created ${values.get('title')} in ${values.get('output')}`)
+console.log(`Created ${values.get('title')} in ${values.get('output')}.
+Next: pnpm install, pnpm verify, commit pnpm-lock.yaml, then follow "Set up a repository" in the Lupinum OSS handbook.`)
