@@ -89,9 +89,17 @@ function steps(job) {
   return Array.isArray(job?.steps) ? job.steps : []
 }
 
-// Installs or runs dependency or repository code: a package manager, node, or a local action.
-const RUNS_CODE = /(^|[\s;&|(`])(pnpm|yarn|npx|bun|bunx|node|tsx|deno)(\s|$)|\bnpm\s+(install|i|ci|add|run|exec|x|test|start|rebuild|pack)\b/m
-const runsCode = step => RUNS_CODE.test(typeof step?.run === 'string' ? step.run : '') || /^\.\//.test(step?.uses ?? '')
+// Installs or runs dependency or repository code: a package manager or JavaScript runtime, a
+// script interpreter or make, a file run by path, by a shell or with `source`/`.`, or a local action.
+const COMMAND = String.raw`(?:^|[;&|(\`{])[ \t]*(?:(?:sudo|exec|env|time|then|do|else|if|!)[ \t]+|\w+=\S*[ \t]+)*`
+const RUNS_CODE = [
+  /(^|[\s;&|(`])(pnpm|yarn|npx|bun|bunx|node|tsx|deno)(\s|$)|\bnpm\s+(install|i|ci|add|run|exec|x|test|start|rebuild|pack)\b/m,
+  new RegExp(`${COMMAND}(?:python[\\d.]*|ruby|perl|php|make)(?:\\s|$)`, 'm'),
+  new RegExp(`${COMMAND}(?:bash|sh|zsh|dash|ksh)(?:[ \\t]+-[a-bd-zA-Z]+)*[ \\t]+[^\\s;&|<>-]`, 'm'), // a file, not -c or stdin
+  new RegExp(`${COMMAND}(?:source|\\.)[ \\t]+["']?[^\\s;&|"']*(?:/|\\.sh\\b)`, 'm'),
+  new RegExp(`${COMMAND}["']?\\.{1,2}/`, 'm'),
+]
+const runsCode = step => RUNS_CODE.some(pattern => pattern.test(typeof step?.run === 'string' ? step.run : '')) || /^\.\//.test(step?.uses ?? '')
 
 export function publicPackages(src) {
   const manifests = ['package.json']
@@ -313,10 +321,13 @@ export function compareVersions(a, b) {
   return 0
 }
 
-// The version manifest behind a dist-tag, or null when the tag does not exist.
+// The version manifest behind a dist-tag, or null when the tag does not exist. Throws when
+// the registry cannot answer, so a failed lookup never reads as "no such tag".
 async function registryTag(name, tag) {
-  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${tag}`, { signal: AbortSignal.timeout(15_000) }).catch(() => null)
-  return response?.ok ? response.json() : null
+  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${tag}`, { signal: AbortSignal.timeout(15_000) })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.json()
 }
 
 export async function auditSettings(src, { publishes, api = gh, registry = registryTag }) {
@@ -346,24 +357,37 @@ export async function auditSettings(src, { publishes, api = gh, registry = regis
     else add('ruleset', 'pass', `PR, 'ci' from GitHub Actions, no force push, linear history on ${src.branch}`)
   }
 
-  // 13b. Release tags cannot be moved or deleted: an active tag ruleset blocks update and
-  // deletion, and its patterns cover every tag the repository has released under.
+  // 13b. Release tags cannot be moved or deleted: an active tag ruleset without bypass actors
+  // blocks update and deletion, and its patterns cover every release tag in the repository.
   if (publishes) {
     const listed = api(`repos/${repo}/rulesets?targets=tag&includes_parents=true`)
     if (!listed.ok) add('tag-ruleset', 'warn', `unverified: ${listed.error}`)
     else {
-      const rulesets = listed.data.filter(ruleset => ruleset.target === 'tag' && ruleset.enforcement === 'active')
+      const blocking = listed.data.filter(ruleset => ruleset.target === 'tag' && ruleset.enforcement === 'active')
         .map(ruleset => api(`repos/${repo}/rulesets/${ruleset.id}`)).filter(detail => detail.ok).map(detail => detail.data)
         .filter(ruleset => ['update', 'deletion'].every(type => ruleset.rules?.some(rule => rule.type === type)))
+      // A bypass actor can still move or delete the tags, so such a ruleset protects nothing.
+      const bypassed = blocking.filter(ruleset => ruleset.bypass_actors?.length)
+        .map(ruleset => `${ruleset.name ?? ruleset.id} (${list(ruleset.bypass_actors.map(actor => `${actor.actor_type}${actor.actor_id ? ` ${actor.actor_id}` : ''}, ${actor.bypass_mode}`))})`)
+      const rulesets = blocking.filter(ruleset => !ruleset.bypass_actors?.length)
       const toRegex = pattern => pattern === '~ALL' ? /^/ : new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*/g, star => (star === '*' ? '[^/]*' : '.*'))}$`)
       const matches = (patterns, ref) => (patterns ?? []).some(pattern => toRegex(pattern).test(ref))
       const covered = ref => rulesets.some(({ conditions }) => matches(conditions?.ref_name?.include, ref) && !matches(conditions?.ref_name?.exclude, ref))
-      const releases = api(`repos/${repo}/releases?per_page=100`)
-      const uncovered = releases.ok ? [...new Set(releases.data.map(release => release.tag_name))].filter(tag => !covered(`refs/tags/${tag}`)) : []
+      // Every tag that ends in a version (v1.2.0, mcp-v1.0.0, @scope/pkg@1.2.0), across all pages.
+      const tags = { ok: true, names: [] }
+      for (let page = 1; tags.ok; page++) {
+        const result = api(`repos/${repo}/tags?per_page=100&page=${page}`)
+        if (!result.ok) Object.assign(tags, { ok: false, error: result.error })
+        else tags.names.push(...result.data.map(tag => tag.name))
+        if (!result.ok || result.data.length < 100) break
+      }
+      const uncovered = tags.names.filter(tag => /\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(tag) && !covered(`refs/tags/${tag}`))
       const patterns = rulesets.flatMap(({ conditions }) => conditions?.ref_name?.include ?? [])
-      if (!rulesets.length) add('tag-ruleset', 'fail', 'no active tag ruleset blocks update and deletion, so a release tag can be moved or deleted')
-      else if (uncovered.length) add('tag-ruleset', 'fail', `release tags not covered by the tag ruleset: ${list(uncovered.slice(0, 5))}${uncovered.length > 5 ? ', ...' : ''}`)
-      else add('tag-ruleset', releases.ok ? 'pass' : 'warn', `${list(patterns)} cannot be moved or deleted${releases.ok ? '' : `; releases unverified: ${releases.error}`}`)
+      const bypass = bypassed.length ? `; ignored because of bypass actors: ${list(bypassed)}` : ''
+      if (!rulesets.length) add('tag-ruleset', 'fail', `no active tag ruleset without bypass actors blocks update and deletion, so a release tag can be moved or deleted${bypass}`)
+      else if (uncovered.length) add('tag-ruleset', 'fail', `release tags not covered by the tag ruleset: ${list(uncovered.slice(0, 5))}${uncovered.length > 5 ? ', ...' : ''}${bypass}`)
+      else if (rulesets.some(ruleset => !Array.isArray(ruleset.bypass_actors))) add('tag-ruleset', 'warn', `${list(patterns)} block update and deletion; bypass actors unverified (needs admin access)`)
+      else add('tag-ruleset', tags.ok ? 'pass' : 'warn', `${list(patterns)} cannot be moved or deleted${tags.ok ? '' : `; tags unverified: ${tags.error}`}`)
     }
   }
 
@@ -428,7 +452,11 @@ export async function auditSettings(src, { publishes, api = gh, registry = regis
   if (publishes) {
     const notes = []
     for (const name of publicPackages(src)) {
-      const [latest, next] = await Promise.all([registry(name, 'latest'), registry(name, 'next')])
+      const lookup = tag => Promise.resolve().then(() => registry(name, tag)).catch((error) => {
+        notes.push(`${name}: could not verify ${tag} (${error.message})`)
+        return null
+      })
+      const [latest, next] = await Promise.all([lookup('latest'), lookup('next')])
       for (const [tag, manifest] of [['latest', latest], ['next', next]]) {
         if (manifest && !manifest.dist?.attestations?.provenance) notes.push(`${name}@${manifest.version} (${tag}) has no provenance (fine only for a bootstrap version)`)
       }

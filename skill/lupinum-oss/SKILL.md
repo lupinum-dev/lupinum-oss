@@ -56,8 +56,8 @@ push one to its branch.
 
 **Release.** Releases are the maintainer's two clicks. You may prepare
 changesets, review the Version packages pull request (`release.yml` rejects
-anything but `package.json` versions, `CHANGELOG.md` files and changeset
-files), and diagnose
+anything but `package.json` versions, the version ranges of the repository's
+own packages in `package.json`, `CHANGELOG.md` files and changeset files), and diagnose
 failures with "Releasing → When publishing fails" and "Troubleshooting". A
 manual run of `release.yml` only re-offers a release already versioned on
 `main`. Hand the approval, and any `npm dist-tag` change, back to the

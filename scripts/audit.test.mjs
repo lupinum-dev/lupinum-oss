@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -75,6 +75,41 @@ test('real attack paths fail', () => {
   }
 })
 
+test('a write-capable job may not run repository files through a shell, an interpreter or make', () => {
+  const release = library['.github/workflows/release.yml']
+  const prJob = '    permissions: { contents: write, pull-requests: write }\n    steps:\n'
+  const withRun = run => release.replace(prJob, `${prJob}      - run: |\n          ${run.replaceAll('\n', '\n          ')}\n`)
+  for (const run of [
+    'bash ./scripts/release.sh',
+    'sh scripts/release.sh',
+    'bash -e scripts/release.sh',
+    './scripts/release',
+    'cd packages/a && ../../scripts/release',
+    'FOO=1 ./scripts/release',
+    'source ./scripts/env.sh',
+    '. scripts/env.sh',
+    'python3 scripts/release.py',
+    'ruby scripts/release.rb',
+    'make release',
+    'if make check; then echo ok; fi',
+    'out="$(./scripts/x)"',
+  ]) {
+    assert.equal(audit({ '.github/workflows/release.yml': withRun(run) }).permissions.status, 'fail', run)
+  }
+  for (const run of [
+    'bash -c \'echo hi\'',
+    'git apply --index ./version.patch',
+    'jq -r \'.[] | . as $p | $p.name\' "$RUNNER_TEMP/versions.json"',
+    'jq \'if .a then . else . end\' ./file.json',
+    'echo "make sure main is green; run sh scripts yourself"',
+  ]) {
+    assert.equal(audit({ '.github/workflows/release.yml': withRun(run) }).permissions.status, 'pass', run)
+  }
+  // The starter's release.yml uses only git, gh, jq and inline shell in its write jobs.
+  const starter = readFileSync(new URL('../starters/_shared/library/.github/workflows/release.yml', import.meta.url), 'utf8')
+  assert.equal(audit({ '.github/workflows/release.yml': starter }).permissions.status, 'pass')
+})
+
 test('pnpm audit through a CI matrix counts', () => {
   const ci = `on: pull_request\npermissions: { contents: read }\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    strategy: { matrix: { task: [lint, audit] } }\n    steps:\n      - run: pnpm \${{ matrix.task }}\n  ci:\n    needs: check\n    runs-on: ubuntu-24.04\n    steps:\n      - run: 'true'\n`
   assert.equal(audit({ '.github/workflows/ci.yml': ci })['ci-audit'].status, 'pass')
@@ -120,8 +155,8 @@ const settings = {
     { type: 'required_linear_history' },
   ],
   'repos/o/r/rulesets?targets=tag&includes_parents=true': [{ id: 1, target: 'tag', enforcement: 'active' }],
-  'repos/o/r/rulesets/1': { conditions: { ref_name: { include: ['refs/tags/v*'], exclude: [] } }, rules: [{ type: 'update' }, { type: 'deletion' }] },
-  'repos/o/r/releases?per_page=100': [{ tag_name: 'v1.2.0' }],
+  'repos/o/r/rulesets/1': { name: 'release tags', conditions: { ref_name: { include: ['refs/tags/v*'], exclude: [] } }, rules: [{ type: 'update' }, { type: 'deletion' }], bypass_actors: [] },
+  'repos/o/r/tags?per_page=100&page=1': [{ name: 'v1.2.0' }],
   'repos/o/r/actions/permissions/workflow': { default_workflow_permissions: 'read', can_approve_pull_request_reviews: true },
   'repos/o/r/environments/npm': {
     can_admins_bypass: false,
@@ -136,7 +171,7 @@ const settings = {
 }
 const provenance = version => ({ version, dist: { attestations: { provenance: {} } } })
 
-async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') } } = {}) {
+async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tags[tag] ?? null } = {}) {
   const responses = { ...settings, ...overrides }
   const api = path => (responses[path] === undefined ? { ok: false, notFound: true, error: 'HTTP 404' } : { ok: true, data: responses[path] })
   const src = {
@@ -146,7 +181,7 @@ async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags =
     files: ['package.json'],
     read: path => (path === 'package.json' ? JSON.stringify({ name: '@lupinum/example' }) : null),
   }
-  const results = await auditSettings(src, { publishes, api, registry: async (_name, tag) => tags[tag] ?? null })
+  const results = await auditSettings(src, { publishes, api, registry })
   return Object.fromEntries(results.map(r => [r.id, r]))
 }
 
@@ -168,11 +203,30 @@ test('release tags cannot be moved or deleted', async () => {
   assert.equal((await auditRemote({ overrides: { [list]: [] } }))['tag-ruleset'].status, 'fail')
   assert.equal((await auditRemote({ overrides: { [list]: [{ id: 1, target: 'tag', enforcement: 'evaluate' }] } }))['tag-ruleset'].status, 'fail')
   assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets/1': { ...ruleset, rules: [{ type: 'deletion' }] } } }))['tag-ruleset'].status, 'fail')
-  // Every released tag prefix must be covered, such as a second package's `mcp-v*`.
-  const releases = { 'repos/o/r/releases?per_page=100': [{ tag_name: 'v1.2.0' }, { tag_name: 'mcp-v1.0.0' }] }
-  assert.equal((await auditRemote({ overrides: releases }))['tag-ruleset'].status, 'fail')
+  // Every release tag prefix must be covered, such as a second package's `mcp-v*`, on any page.
+  const tags = {
+    'repos/o/r/tags?per_page=100&page=1': Array.from({ length: 100 }, (_, i) => ({ name: `v1.0.${i}` })),
+    'repos/o/r/tags?per_page=100&page=2': [{ name: 'mcp-v1.0.0' }, { name: 'docs-snapshot' }],
+  }
+  const uncovered = (await auditRemote({ overrides: tags }))['tag-ruleset']
+  assert.equal(uncovered.status, 'fail')
+  assert.match(uncovered.detail, /mcp-v1\.0\.0/)
+  assert.doesNotMatch(uncovered.detail, /docs-snapshot/)
   const both = { ...ruleset, conditions: { ref_name: { include: ['refs/tags/v*', 'refs/tags/mcp-v*'], exclude: [] } } }
-  assert.equal((await auditRemote({ overrides: { ...releases, 'repos/o/r/rulesets/1': both } }))['tag-ruleset'].status, 'pass')
+  assert.equal((await auditRemote({ overrides: { ...tags, 'repos/o/r/rulesets/1': both } }))['tag-ruleset'].status, 'pass')
+  // Tags that cannot be listed are unverified, not covered.
+  assert.equal((await auditRemote({ overrides: { 'repos/o/r/tags?per_page=100&page=1': undefined } }))['tag-ruleset'].status, 'warn')
+})
+
+test('a tag ruleset with bypass actors does not protect release tags', async () => {
+  const ruleset = settings['repos/o/r/rulesets/1']
+  const bypass = [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }]
+  const result = (await auditRemote({ overrides: { 'repos/o/r/rulesets/1': { ...ruleset, bypass_actors: bypass } } }))['tag-ruleset']
+  assert.equal(result.status, 'fail')
+  assert.match(result.detail, /release tags \(RepositoryRole 5, always\)/)
+  // Without admin access GitHub omits bypass_actors, so the audit cannot pass the ruleset.
+  const { bypass_actors: _, ...hidden } = ruleset
+  assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets/1': hidden } }))['tag-ruleset'].status, 'warn')
 })
 
 test('Actions token permissions', async () => {
@@ -212,6 +266,17 @@ test('provenance and dist-tags', async () => {
   // a minor prerelease on the same line is normal
   assert.equal((await auditRemote({ tags: { latest: provenance('1.1.0'), next: provenance('1.2.0-next.0') } })).provenance.status, 'pass')
   assert.equal((await auditRemote({ tags: { latest: provenance('0.9.0'), next: provenance('0.10.0-rc.0') } })).provenance.status, 'warn')
+})
+
+test('a failed registry lookup warns; a missing next tag does not', async () => {
+  const registry = async (_name, tag) => {
+    if (tag === 'latest') throw new Error('HTTP 503')
+    return null
+  }
+  const result = (await auditRemote({ registry })).provenance
+  assert.equal(result.status, 'warn')
+  assert.match(result.detail, /could not verify latest \(HTTP 503\)/)
+  assert.equal((await auditRemote({ tags: { latest: provenance('1.2.0') } })).provenance.status, 'pass')
 })
 
 test('compareVersions follows semver precedence', () => {
