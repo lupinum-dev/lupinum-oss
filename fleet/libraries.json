@@ -8,6 +8,7 @@
     "lupinum-dev/nuxt-email",
     "lupinum-dev/nuxt-pdf",
     "lupinum-dev/nuxt-photo",
-    "lupinum-dev/nuxt-tour"
+    "lupinum-dev/nuxt-tour",
+    "lupinum-dev/website-config"
   ]
 }
