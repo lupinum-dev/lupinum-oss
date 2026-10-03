@@ -35,6 +35,10 @@
     {
       "repository": "lupinum-dev/nuxt-tour",
       "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/website-config",
+      "evidence": {}
     }
   ]
 }
