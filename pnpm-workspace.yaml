@@ -14,9 +14,18 @@ allowBuilds:
   vue-demi: true
 
 overrides:
+  # Remove when unifont requires undici 8.10.2 or newer.
+  "unifont>undici": 8.11.2
   # Remove when fontless requires esbuild 0.28.1 or newer.
   "fontless>esbuild": 0.28.2
   # Remove when Vite requires esbuild 0.28.1 or newer.
   "vite>esbuild": 0.28.2
   # Remove when Nuxt requires devalue 5.9.1 or newer (GHSA DoS in devalue < 5.9.1).
   devalue: 5.9.4
+
+auditConfig:
+  ignoreGhsas:
+    # No published fix; braces processes build-time glob patterns, not published site input. Recheck 2026-11-01.
+    - GHSA-vfj7-8cjw-p6xm
+    # No published fix; node-forge is used only for listhen dev-server self-signed certificates. Recheck 2026-11-01.
+    - GHSA-86w9-cpqp-85rv
