@@ -1,13 +1,40 @@
 {
   "repositories": [
-    "lupinum-dev/lupinum-oss",
-    "lupinum-dev/better-convex",
-    "lupinum-dev/ginko-content",
-    "lupinum-dev/ginko-docs",
-    "lupinum-dev/nuxt-board",
-    "lupinum-dev/nuxt-email",
-    "lupinum-dev/nuxt-pdf",
-    "lupinum-dev/nuxt-photo",
-    "lupinum-dev/nuxt-tour"
+    {
+      "repository": "lupinum-dev/lupinum-oss",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/better-convex",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/ginko-content",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/ginko-docs",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/nuxt-board",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/nuxt-email",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/nuxt-pdf",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/nuxt-photo",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/nuxt-tour",
+      "evidence": {}
+    }
   ]
 }

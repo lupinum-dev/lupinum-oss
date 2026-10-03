@@ -42,7 +42,7 @@ function gh(path, { raw = false } = {}) {
   const args = ['api', ...(raw ? ['-H', 'Accept: application/vnd.github.raw'] : []), path]
   try {
     const out = execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 << 20 })
-    return { ok: true, data: raw ? out : JSON.parse(out) }
+    return { ok: true, data: raw ? out : out.trim() ? JSON.parse(out) : null }
   }
   catch (error) {
     const message = String(error.stderr || error.message).trim().split('\n').at(-1)
@@ -126,6 +126,74 @@ function publicManifests(src) {
     .filter(({ manifest }) => manifest?.name && !manifest.private)
 }
 
+// Checklist metadata is shared by aggregation, evidence and both output formats.
+const STAGES = ['Not reached', 'Built', 'Protected', 'Released', 'Documented', 'Maintained']
+const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'FILE-11', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'NPM-05'])
+const NO_EXCEPTION = new Set(['FILE-03', 'FILE-04', 'FILE-06', 'GH-01', 'GH-02', 'GH-05'])
+const EVIDENCE_CHECKS = { 'NPM-01': 'manual', 'NPM-02': 'manual', 'DOC-03': 'agent', 'DOC-04': 'agent', 'DOC-05': 'agent' }
+const ITEM_IDS = [
+  ...Array.from({ length: 11 }, (_, i) => `FILE-${String(i + 1).padStart(2, '0')}`),
+  ...Array.from({ length: 8 }, (_, i) => `GH-${String(i + 1).padStart(2, '0')}`),
+  ...['NPM', 'DOC', 'OPS'].flatMap(prefix => Array.from({ length: 5 }, (_, i) => `${prefix}-${String(i + 1).padStart(2, '0')}`)),
+]
+const CHECK_ITEMS = {
+  workflows: 'FILE-01', preview: 'FILE-01', 'ci-check': 'FILE-02', 'ci-audit': 'FILE-02',
+  'actions-pinned': 'FILE-03', permissions: 'FILE-03', 'pull-request-target': 'FILE-03',
+  'publish-job': 'FILE-04', 'no-npm-token': 'FILE-04', changesets: 'FILE-05', 'version-job': 'FILE-05',
+  'pnpm-quarantine': 'FILE-06', renovate: 'FILE-07', files: 'FILE-08', lean: 'FILE-08',
+  scripts: 'FILE-09', 'agent-docs': 'FILE-11', ruleset: 'GH-01', 'tag-ruleset': 'GH-02',
+  'actions-permissions': 'GH-04', 'npm-environment': 'GH-05', 'secret-scanning': 'GH-06',
+  codeql: 'GH-06', 'dependabot-updates': 'GH-06', secrets: 'GH-07', provenance: 'NPM-03',
+  vercel: 'DOC-01', tree: 'FILE-01',
+}
+const itemStage = id => ({ FILE: 1, GH: 2, NPM: 3, DOC: 4, OPS: 5 })[id.split('-')[0]]
+const SEVERITY = { pass: 0, warn: 1, open: 2, fail: 3 }
+
+export function checklistItems(results, src, { publishes = publicPackages(src).length > 0 } = {}) {
+  const items = new Map()
+  for (const result of results) {
+    const id = CHECK_ITEMS[result.id] ?? result.id
+    if (!publishes && LIBRARY_ONLY.has(id)) continue
+    const previous = items.get(id)
+    items.set(id, {
+      id, stage: itemStage(id), check: EVIDENCE_CHECKS[id] ?? 'auto',
+      status: previous && SEVERITY[previous.status] > SEVERITY[result.status] ? previous.status : result.status,
+      detail: previous ? `${previous.detail}; ${result.detail}` : result.detail,
+    })
+  }
+  const decisions = (src.read('DECISIONS.md') ?? '').split('\n')
+  for (const item of items.values()) {
+    const exception = decisions.find(line => new RegExp(`\\b${item.id}\\b`).test(line))
+    if (exception && !NO_EXCEPTION.has(item.id) && ['fail', 'warn'].includes(item.status)) {
+      item.status = 'pass'
+      item.detail = exception.trim()
+    }
+  }
+  return [...items.values()].sort((a, b) => ITEM_IDS.indexOf(a.id) - ITEM_IDS.indexOf(b.id))
+}
+
+export function stageReached(items, maximum = 5) {
+  let reached = 0
+  for (let stage = 1; stage <= maximum; stage++) {
+    if (items.some(item => item.stage === stage && !['pass', 'warn'].includes(item.status))) break
+    reached = stage
+  }
+  return reached
+}
+
+function readFleet() {
+  return JSON.parse(readFileSync(new URL('../fleet/libraries.json', import.meta.url), 'utf8')).repositories
+}
+
+const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
+// Tokens stand for a segment within one line; whitespace at line ends is immaterial.
+function matchesStarter(actual, template) {
+  const normalize = text => text.split('\n').map(line => line.trimEnd()).join('\n')
+  const pattern = normalize(template).split(/(\{\{[A-Z_]+\}\})/).map(part => /^\{\{[A-Z_]+\}\}$/.test(part)
+    ? '[^\\n]*' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')
+  return actual !== null && new RegExp(`^${pattern}$`).test(normalize(actual))
+}
+
 // ---------- file checks (local and remote) ----------
 
 export function auditFiles(src, { publishes = publicPackages(src).length > 0 } = {}) {
@@ -163,6 +231,8 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
       || Object.entries(pkg?.scripts ?? {}).some(([name, command]) => /\bpnpm audit\b/.test(command) && calls(name))
     add('ci-audit', audits ? 'pass' : 'fail', audits ? 'pnpm audit runs in CI' : 'CI does not run pnpm audit')
   }
+
+  if (!ci) add('ci-check', 'fail', 'ci.yml missing; CI checks unverified')
 
   // 3. Actions pinned by full commit SHA.
   const unpinned = []
@@ -294,7 +364,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   add('scripts', missingScripts.length ? 'fail' : 'pass', missingScripts.length ? `missing ${list(missingScripts)}` : list(requiredScripts))
 
   // 10. Repository files.
-  const requiredFiles = ['README.md', 'LICENSE', 'SECURITY.md', 'AGENTS.md', 'DECISIONS.md']
+  const requiredFiles = ['README.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', 'CLAUDE.md', 'DECISIONS.md']
   const missingFiles = requiredFiles.filter(file => !src.files.includes(file))
   add('files', missingFiles.length ? 'fail' : 'pass', missingFiles.length ? `missing ${list(missingFiles)}` : list(requiredFiles))
 
@@ -313,7 +383,14 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   if (governance.length) excess.push(`governance files: ${list(governance.slice(0, 8))}${governance.length > 8 ? ', ...' : ''}`)
   add('lean', excess.length ? 'warn' : 'pass', excess.length ? list(excess) : `${scripts.length} scripts, ${scriptLines} lines in scripts/`)
 
-  return results
+  if (publishes) {
+    const different = OWNED_FILES.filter(file => !matchesStarter(src.read(file), readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8')))
+    const unexplained = different.filter(file => !decisions.includes(file.split('/').at(-1)))
+    add('FILE-10', unexplained.length ? 'warn' : 'pass', unexplained.length
+      ? `missing or different from starter: ${list(unexplained)}`
+      : different.length ? `${list(different)} explained in DECISIONS.md` : 'standard-owned files match the starter')
+  }
+  return checklistItems(results, src, { publishes })
 }
 
 // ---------- settings checks (remote only) ----------
@@ -342,13 +419,13 @@ export function compareVersions(a, b) {
 // The version manifest behind a dist-tag, or null when the tag does not exist. Throws when
 // the registry cannot answer, so a failed lookup never reads as "no such tag".
 async function registryTag(name, tag) {
-  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${tag}`, { signal: AbortSignal.timeout(15_000) })
+  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}${tag ? `/${tag}` : ''}`, { signal: AbortSignal.timeout(15_000) })
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   return response.json()
 }
 
-export async function auditSettings(src, { publishes, api = gh, registry = registryTag }) {
+export async function auditSettings(src, { publishes = publicPackages(src).length > 0, api = gh, registry = registryTag, fetch: fetchUrl = globalThis.fetch, fleet = readFleet(), now = Date.now() } = {}) {
   const results = []
   const add = (id, status, detail) => results.push({ id, status, detail })
   const repo = src.repository
@@ -469,6 +546,7 @@ export async function auditSettings(src, { publishes, api = gh, registry = regis
   // 18. The versions behind `latest` and `next` carry provenance, and the tags are not stale.
   if (publishes) {
     const notes = []
+    const waiting = []
     for (const name of publicPackages(src)) {
       const lookup = tag => Promise.resolve().then(() => registry(name, tag)).catch((error) => {
         notes.push(`${name}: could not verify ${tag} (${error.message})`)
@@ -483,52 +561,200 @@ export async function auditSettings(src, { publishes, api = gh, registry = regis
         const [major, minor] = next.version.split('.').map(Number)
         const line = major > 0 ? `${major}.0.0` : `0.${minor}.0`
         if (compareVersions(latest.version, line) < 0) notes.push(`${name}: latest ${latest.version} is older than next's line ${line.replace(/(\.0)+$/, '.x')} (expected only while that line is in prerelease)`)
-        else if (compareVersions(next.version, latest.version) < 0) notes.push(`${name}: next ${next.version} is behind latest ${latest.version} (npm dist-tag rm ${name} next)`)
+        else if (compareVersions(next.version, latest.version) < 0) waiting.push(`${name}: next ${next.version} is behind latest ${latest.version} (npm dist-tag rm ${name} next)`)
       }
     }
-    add('provenance', notes.length ? 'warn' : 'pass', notes.length ? list(notes) : 'latest and next have provenance and are current')
+    add('provenance', notes.length ? 'warn' : 'pass', notes.length ? list(notes) : 'latest and next have provenance')
+    add('NPM-05', waiting.length ? 'warn' : 'pass', waiting.length ? list(waiting) : 'dist-tags are current')
   }
-  return results
+  // Collection endpoints must include all pages: old PRs and dashboards can be beyond page one.
+  const collection = (path) => {
+    const data = []
+    for (let page = 1; ; page++) {
+      const result = api(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`)
+      if (!result.ok) return result
+      data.push(...result.data)
+      if (result.data.length < 100) return { ok: true, data }
+    }
+  }
+  const age = date => (now - Date.parse(date)) / 86_400_000
+  const unverified = (id, result) => add(id, 'warn', `unverified: ${result.error ?? 'missing date'}`)
+
+  const merges = api(`repos/${repo}`)
+  if (!merges.ok) unverified('GH-03', merges)
+  else {
+    const expected = { allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, delete_branch_on_merge: true, allow_auto_merge: false }
+    const wrong = Object.entries(expected).filter(([key, value]) => merges.data[key] !== value).map(([key, value]) => `${key} must be ${value}`)
+    add('GH-03', wrong.length ? 'fail' : 'pass', wrong.length ? list(wrong) : 'squash only, delete merged branches, auto-merge off')
+  }
+  for (const [path, label] of [['vulnerability-alerts', 'Dependabot alerts'], ['private-vulnerability-reporting', 'private vulnerability reporting']]) {
+    const result = api(`repos/${repo}/${path}`)
+    if (!result.ok) add('GH-06', result.notFound ? 'fail' : 'warn', result.notFound ? `${label} disabled` : `${label} unverified: ${result.error}`)
+    else add('GH-06', result.data?.enabled === false ? 'fail' : 'pass', `${label} ${result.data?.enabled === false ? 'disabled' : 'enabled'}`)
+  }
+  const issues = collection(`repos/${repo}/issues?state=open`)
+  if (!issues.ok) unverified('GH-08', issues)
+  else {
+    const dashboard = issues.data.filter(issue => !issue.pull_request && issue.title === 'Dependency Dashboard')
+      .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0]
+    add('GH-08', !dashboard ? 'fail' : age(dashboard.updated_at) <= 14 ? 'pass' : 'warn',
+      !dashboard ? 'no open Dependency Dashboard' : `Dependency Dashboard updated ${dashboard.updated_at}`)
+  }
+
+  const prs = collection(`repos/${repo}/pulls?state=open`)
+  if (publishes) {
+    if (!prs.ok) unverified('NPM-05', prs)
+    else {
+      const stale = prs.data.filter(pr => pr.head?.ref === 'changeset-release/main' && age(pr.created_at) > 14)
+      add('NPM-05', stale.length ? 'warn' : 'pass', stale.length ? `Version packages PR older than 14 days: ${list(stale.map(pr => `#${pr.number}`))}` : 'no overdue Version packages PR')
+    }
+    const releases = collection(`repos/${repo}/releases`)
+    const problems = []
+    let unreadable = false
+    let failed = false
+    for (const name of publicPackages(src)) {
+      try {
+        const pack = await registry(name)
+        if (!pack) { failed = true; problems.push(`${name}: no published versions`); continue }
+        const newest = Object.keys(pack.versions ?? {}).filter(version => Number.isFinite(Date.parse(pack.time?.[version])))
+          .sort((a, b) => Date.parse(pack.time[b]) - Date.parse(pack.time[a]))[0]
+        if (!newest) { failed = true; problems.push(`${name}: no dated published version`) }
+        else if (!releases.ok) { unreadable = true; problems.push(`${name}: releases unverified: ${releases.error}`) }
+        else if (!releases.data.some(release => !release.draft && (release.tag_name === `v${newest}` || release.tag_name === `${name}@${newest}` || release.tag_name?.endsWith(newest)))) {
+          failed = true
+          problems.push(`${name}@${newest}: no GitHub release`)
+        }
+      }
+      catch (error) { unreadable = true; problems.push(`${name}: registry unverified: ${error.message}`) }
+    }
+    add('NPM-04', failed ? 'fail' : unreadable ? 'warn' : 'pass', problems.length ? list(problems) : 'newest published versions have GitHub releases')
+  }
+
+  const homepage = json(src.read('package.json'))?.homepage
+  if (!homepage) {
+    add('DOC-01', 'warn', 'no homepage; URL check skipped')
+    add('DOC-02', 'warn', 'no homepage; agent Markdown check skipped')
+  }
+  else {
+    const get = async url => {
+      try { return await fetchUrl(url, { signal: AbortSignal.timeout(15_000) }) }
+      catch (error) { return { ok: false, status: error.message } }
+    }
+    const home = await get(homepage)
+    add('DOC-01', home.ok ? 'pass' : 'fail', `${homepage}: ${home.status}`)
+    const base = homepage.replace(/\/$/, '')
+    const problems = []
+    const llms = await get(`${base}/llms.txt`)
+    if (!llms.ok) problems.push(`llms.txt: ${llms.status}`)
+    const full = await get(`${base}/llms-full.txt`)
+    for (const [file, response] of [['llms.txt', llms], ['llms-full.txt', full]]) {
+      if (!response.ok) continue
+      try {
+        if (/<example|Component omitted|<pm-install/.test(await response.text())) problems.push(`${file}: contains component placeholders`)
+      }
+      catch (error) { problems.push(`${file}: ${error.message}`) }
+    }
+    add('DOC-02', problems.length ? 'fail' : 'pass', problems.length ? list(problems) : 'llms.txt answers; available agent Markdown has no placeholders')
+  }
+
+  const entry = fleet.find(entry => entry.repository === repo)
+  add('OPS-01', entry ? 'pass' : 'fail', entry ? 'listed in fleet/libraries.json' : 'not listed in fleet/libraries.json')
+  for (const [id, check] of Object.entries(EVIDENCE_CHECKS)) {
+    if (!publishes && LIBRARY_ONLY.has(id)) continue
+    const evidence = entry?.evidence?.[id]
+    add(id, typeof evidence === 'string' && evidence.trim() ? 'pass' : 'open',
+      typeof evidence === 'string' && evidence.trim() ? evidence : `needs ${check} evidence in fleet/libraries.json`)
+  }
+  const runs = api(`repos/${repo}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1`)
+  if (!runs.ok) unverified('OPS-02', runs)
+  else {
+    const run = runs.data.workflow_runs?.[0]
+    add('OPS-02', run?.conclusion === 'success' ? 'pass' : 'fail', run ? `latest completed ci.yml on main: ${run.conclusion}` : 'no completed ci.yml run on main')
+  }
+  const alerts = collection(`repos/${repo}/dependabot/alerts?state=open`)
+  if (!alerts.ok) unverified('OPS-03', alerts)
+  else {
+    const dangerous = alerts.data.filter(alert => ['high', 'critical'].includes(alert.security_advisory?.severity))
+    add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts`)
+  }
+  const branches = collection(`repos/${repo}/branches`)
+  if (!branches.ok || !prs.ok) unverified('OPS-04', !branches.ok ? branches : prs)
+  else {
+    const stale = []
+    const unreadable = []
+    for (const branch of branches.data) {
+      if (branch.name === 'main' || prs.data.some(pr => pr.head?.ref === branch.name && pr.head?.repo?.full_name === repo)) continue
+      const commit = api(`repos/${repo}/commits/${encodeURIComponent(branch.commit.sha)}`)
+      const date = commit.data?.commit?.committer?.date
+      if (!commit.ok || !Number.isFinite(Date.parse(date))) unreadable.push(branch.name)
+      else if (age(date) > 30) stale.push(branch.name)
+    }
+    add('OPS-04', stale.length || unreadable.length ? 'warn' : 'pass', [
+      stale.length ? `branches older than 30 days without a PR: ${list(stale.slice(0, 10))}` : 'no abandoned branches',
+      ...(unreadable.length ? [`commit dates unverified: ${list(unreadable.slice(0, 10))}`] : []),
+    ].join('; '))
+  }
+  if (!prs.ok) unverified('OPS-05', prs)
+  else {
+    const stale = prs.data.filter(pr => age(pr.updated_at) > 14)
+    add('OPS-05', stale.length ? 'warn' : 'pass', stale.length ? `PRs inactive for more than 14 days: ${list(stale.map(pr => `#${pr.number}`))}` : 'no inactive PRs')
+  }
+  return checklistItems(results, src, { publishes })
 }
 
 // ---------- CLI ----------
 
-const LABEL = { pass: 'PASS', fail: 'FAIL', warn: 'WARN', skip: 'SKIP' }
+const LABEL = { pass: 'PASS', fail: 'FAIL', warn: 'WARN', open: 'OPEN' }
 
 async function main(argv) {
+  if (argv.includes('--help')) {
+    console.log('Usage: node scripts/audit.mjs [OWNER/REPO ...] [--json]\n       node scripts/audit.mjs --local [DIR] [--json]\nWithout targets, audit every repository in fleet/libraries.json. Local mode audits stage 1 only.')
+    return 0
+  }
   const asJson = argv.includes('--json')
   const args = argv.filter(arg => arg !== '--json')
+  const local = args[0] === '--local'
   const reports = []
-
-  if (args[0] === '--local') {
+  const report = (src, items) => {
+    if (local) items = items.filter(item => item.stage === 1)
+    reports.push({ repository: src.repository ?? src.label, stage: stageReached(items, local ? 1 : 5), items })
+  }
+  if (local) {
     const src = localSource(args[1] ?? '.')
-    reports.push({ target: src.label, results: auditFiles(src) })
+    report(src, auditFiles(src))
   }
   else {
-    const targets = args.length ? args : json(readFileSync(new URL('../fleet/libraries.json', import.meta.url), 'utf8')).repositories
+    const fleet = readFleet()
+    const targets = args.length ? args : fleet.map(entry => entry.repository)
     for (const repository of targets) {
       try {
         const src = remoteSource(repository)
         const publishes = publicPackages(src).length > 0
-        reports.push({ target: src.label, results: [...auditFiles(src, { publishes }), ...(await auditSettings(src, { publishes }))] })
+        report(src, checklistItems([...auditFiles(src, { publishes }), ...(await auditSettings(src, { publishes, fleet }))], src, { publishes }))
       }
       catch (error) {
-        reports.push({ target: repository, results: [{ id: 'read', status: 'fail', detail: error.message }] })
+        // An unreadable source cannot establish any stage.
+        reports.push({ repository, stage: 0, items: [{ id: 'FILE-01', stage: 1, check: 'auto', status: 'fail', detail: `repository unreadable: ${error.message}` }] })
       }
     }
   }
-
-  if (asJson) console.log(JSON.stringify(reports, null, 2))
+  if (asJson) console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2))
   else {
-    for (const { target, results } of reports) {
-      console.log(`\n${target}`)
-      for (const { id, status, detail } of results) console.log(`  ${LABEL[status]}  ${id.padEnd(20)} ${detail}`)
+    for (const { repository, stage, items } of reports) {
+      console.log(`\n${repository}${local ? ' (local: stage 1 only)' : ''}`)
+      for (let n = 1; n <= (local ? 1 : 5); n++) {
+        const group = items.filter(item => item.stage === n)
+        if (!group.length) continue
+        console.log(`${n}. ${STAGES[n]}`)
+        for (const { id, status, detail } of group) console.log(`  ${LABEL[status].padEnd(4)}  ${id}  ${detail}`)
+      }
+      console.log(`Stage reached: ${stage}. ${STAGES[stage]}`)
+      const open = items.filter(item => item.status !== 'pass')
+        .sort((a, b) => (a.stage <= stage ? 6 : a.stage) - (b.stage <= stage ? 6 : b.stage))
+      console.log(`Open: ${open.length ? open.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
     }
-    const all = reports.flatMap(report => report.results)
-    const count = status => all.filter(result => result.status === status).length
-    console.log(`\n${count('pass')} pass, ${count('warn')} warn, ${count('fail')} fail`)
   }
-  return reports.some(report => report.results.some(result => result.status === 'fail')) ? 1 : 0
+  return reports.some(report => report.items.some(item => item.status === 'fail')) ? 1 : 0
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
