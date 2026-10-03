@@ -25,3 +25,10 @@ overrides:
   # nuxt-og-image 6.9 refuses older versions) and satori requires fflate 0.7.5 or newer.
   '@lupinum/ginko-docs>satori': 0.33.5
   'satori>fflate': 0.7.5
+
+auditConfig:
+  ignoreGhsas:
+    # No published fix; braces processes build-time glob patterns, not published site input. Recheck 2026-11-01.
+    - GHSA-vfj7-8cjw-p6xm
+    # No published fix; node-forge is used only for listhen dev-server self-signed certificates. Recheck 2026-11-01.
+    - GHSA-86w9-cpqp-85rv

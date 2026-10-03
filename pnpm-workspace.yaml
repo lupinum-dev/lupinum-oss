@@ -14,7 +14,7 @@ allowBuilds:
   vue-demi: true
 
 overrides:
-  # Remove when unifont requires undici 8.10.2 or newer.
+  # Fix undici high advisories; remove when unifont depends on a fixed version (>=8.10.2).
   "unifont>undici": 8.11.2
   # Remove when fontless requires esbuild 0.28.1 or newer.
   "fontless>esbuild": 0.28.2
