@@ -1,8 +1,8 @@
 // Used by .github/workflows/release.yml. Never publishes anything itself.
 //   node scripts/release.mjs check  prints publish=true when a public workspace package version is not on npm yet
 //   node scripts/release.mjs pack   packs those packages into release/ with releases.json (run `pnpm build` first)
-// Tags: `v<version>` when every public package shares one version (one package, or a Changesets
-// fixed group); otherwise one `<name>@<version>` tag and GitHub release per package.
+// Tags: `v<version>` when there is one public package or all of them are in one Changesets `fixed`
+// group; otherwise one `<name>@<version>` tag and GitHub release per package.
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -49,7 +49,10 @@ const notes = unpublished.map((pkg) => {
 
 const entry = (tag, version, text) => ({ tag, notes: text, prerelease: version.includes('-') })
 const { version } = packages[0]
-const releases = packages.every(pkg => pkg.version === version)
+const names = packages.map(pkg => pkg.name)
+const { fixed = [] } = JSON.parse(readFileSync('.changeset/config.json', 'utf8'))
+const shared = names.length === 1 || fixed.some(group => names.every(name => group.includes(name)))
+const releases = shared
   ? [entry(`v${version}`, version, notes.map(n => (notes.length > 1 ? `## ${n.name}\n\n${n.body}` : n.body)).join('\n\n'))]
   : notes.map(n => entry(`${n.name}@${n.version}`, n.version, n.body))
 writeFileSync(join(destination, 'releases.json'), `${JSON.stringify(releases, null, 2)}\n`)

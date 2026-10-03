@@ -15,7 +15,7 @@ pnpm verify                       # exactly what ci.yml runs: pnpm audit, pnpm t
 pnpm audit:repos                  # audit every repository in fleet/libraries.json (read-only, uses gh)
 pnpm audit:repos OWNER/REPO       # audit one repository
 node scripts/audit.mjs --local ../some-repo   # file checks only, no GitHub access
-node scripts/verify-starters.mjs [library|library-monorepo|app]   # generate and verify starters (slow)
+node scripts/verify-starters.mjs [library|library-monorepo|nuxt-module]   # generate and verify starters (slow)
 ```
 
 `pnpm audit` is pnpm's dependency audit; the repository audit is `pnpm audit:repos`.

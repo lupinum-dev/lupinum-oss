@@ -46,5 +46,7 @@ to add a pointer to it. Keep the `./agent-docs` export and that section.
 
 - Keep the public API in `src/index.ts` small. Everything exported is a promise
   to users.
+- Every export and option has a doc comment with its meaning and default.
+  Errors say how to fix them.
 - Update `docs/` in the same pull request as the behaviour it describes.
 - Test public behaviour, not internals.

@@ -1,38 +1,51 @@
-<p align="center"><img src="public/icon.svg" width="128" alt="{{TITLE}} icon"></p>
+<p align="center"><img src="docs/public/icon.svg" width="128" alt="{{TITLE}} icon"></p>
 <h1 align="center">{{TITLE}}</h1>
 <p align="center">{{DESCRIPTION}}</p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/{{PACKAGE_NAME}}"><img alt="npm" src="https://img.shields.io/npm/v/{{PACKAGE_NAME}}"></a>
   <a href="https://github.com/{{REPOSITORY}}/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/{{REPOSITORY}}/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
 ## Why use {{TITLE}}?
 
-{{DESCRIPTION}} The application uses Nuxt and runs at [{{DOMAIN}}](https://{{DOMAIN}}).
+{{DESCRIPTION}} It is a Nuxt module with a small public API and TypeScript declarations.
 
 ## Requirements
 
+- Nuxt 4.
 - Node.js 22.14 or later, Node.js 24, or Node.js 26.
-- pnpm 11.
 
 ## Installation
 
 ```bash
-pnpm install
+pnpm add {{PACKAGE_NAME}}
 ```
 
 ## Quick start
 
-```bash
-pnpm dev
+Add the module to `nuxt.config.ts`:
+
+```ts
+export default defineNuxtConfig({
+  modules: ['{{PACKAGE_NAME}}'],
+})
 ```
 
-Open the local URL that Nuxt prints.
+Then use the auto-imported composable in any component:
+
+```vue
+<script setup lang="ts">
+const greeting = useGreeting('World')
+</script>
+```
+
+{{CONSUMER_ONBOARDING_MARKDOWN}}
 
 ## Documentation
 
-Vercel deploys `main` to [{{DOMAIN}}](https://{{DOMAIN}}) and every pull request to a preview URL.
+Read the full documentation at [{{DOMAIN}}](https://{{DOMAIN}}).
 
 ## Contributing
 

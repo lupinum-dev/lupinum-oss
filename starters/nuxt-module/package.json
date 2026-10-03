@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "{{DESCRIPTION}}",
   "type": "module",
-  "sideEffects": false,
   "license": "MIT",
   "author": "Lupinum OG <info@lupinum.com> (https://lupinum.com)",
   "homepage": "https://{{DOMAIN}}",
@@ -12,35 +11,47 @@
   "packageManager": "pnpm@11.21.0",
   "engines": { "node": "^22.14.0 || ^24.0.0 || ^26.0.0" },
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    ".": { "types": "./dist/types.d.mts", "import": "./dist/module.mjs" },
     "./agent-docs": "./dist/agent/AGENTS.md"
   },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/module.mjs",
+  "types": "./dist/types.d.mts",
   "files": ["dist", "CHANGELOG.md"],
   "publishConfig": { "access": "public" },
   "scripts": {
-    "dev": "tsup src/index.ts --format esm --dts --watch",
-    "build": "tsup src/index.ts --format esm --dts --clean && pnpm docs:build && node scripts/agent-docs.mjs && publint",
+    "dev": "pnpm dev:prepare && nuxt dev playground",
+    "dev:prepare": "nuxt-module-build build --stub && nuxt-module-build prepare && nuxt prepare playground",
+    "build": "nuxt-module-build prepare && nuxt-module-build build && pnpm docs:build && node scripts/agent-docs.mjs && publint",
     "lint": "eslint . && node scripts/lint-changesets.mjs",
     "format": "eslint . --fix",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm dev:prepare && vue-tsc --noEmit",
     "test": "vitest run",
     "docs:dev": "pnpm --dir docs dev",
     "docs:build": "pnpm --dir docs build",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm audit --audit-level=high",
     "changeset": "changeset"
   },
+  "peerDependencies": {
+    "nuxt": "^4.0.0"
+  },
+  "dependencies": {
+    "@nuxt/kit": "^4.5.2"
+  },
   "devDependencies": {
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
     "@nuxt/eslint-config": "^1.17.0",
+    "@nuxt/module-builder": "^1.0.3",
+    "@nuxt/schema": "^4.5.2",
+    "@nuxt/test-utils": "^4.1.0",
     "@types/node": "26.1.1",
     "eslint": "^10.9.0",
+    "nuxt": "^4.5.2",
     "pkg-pr-new": "0.0.87",
     "publint": "0.3.24",
-    "tsup": "^8.5.1",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.11",
+    "vue": "^3.5.42",
+    "vue-tsc": "^3.3.11"
   }
 }
