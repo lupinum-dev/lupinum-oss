@@ -612,7 +612,14 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const problems = []
     let unreadable = false
     let failed = false
-    for (const name of publicPackages(src)) {
+    const names = publicPackages(src)
+    const fixed = json(src.read('.changeset/config.json'))?.fixed ?? []
+    const globMatch = (pattern, name) => new RegExp(`^${String(pattern).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`).test(name)
+    const releasesTogether = name => names.length === 1 || fixed.some(group => group.some(pattern => globMatch(pattern, name)))
+    const releaseTag = (tag, name, version) => tag === `${name}@${version}`
+      || (tag === `v${version}` && releasesTogether(name))
+      || (tag?.endsWith(`-v${version}`) && name.split('/').at(-1).endsWith(tag.slice(0, -`-v${version}`.length)))
+    for (const name of names) {
       try {
         const pack = await registry(name)
         if (!pack) { failed = true; problems.push(`${name}: no published versions`); continue }
@@ -620,15 +627,15 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
           .sort((a, b) => Date.parse(pack.time[b]) - Date.parse(pack.time[a]))[0]
         if (!newest) { failed = true; problems.push(`${name}: no dated published version`) }
         else if (!releases.ok) { unreadable = true; problems.push(`${name}: releases unverified: ${releases.error}`) }
-        else if (!releases.data.some(release => !release.draft && (release.tag_name === `v${newest}` || release.tag_name === `${name}@${newest}` || release.tag_name?.endsWith(`-v${newest}`)))) {
+        else if (!releases.data.some(release => !release.draft && releaseTag(release.tag_name, name, newest))) {
           failed = true
           problems.push(`${name}@${newest}: no GitHub release`)
         }
       }
       catch (error) { unreadable = true; problems.push(`${name}: registry unverified: ${error.message}`) }
     }
-    // Tags: `v1.2.0` (one package or a fixed group), `@scope/a@1.2.0` (independent packages), or a
-    // prefixed `name-v1.2.0` such as `mcp-v1.2.0`. A tag that only ends in the digits does not count.
+    // Tags: `v1.2.0` (one package or a Changesets fixed group), `@scope/a@1.2.0`, or a prefix the
+    // package name ends with, such as `mcp-v1.2.0` for `@lupinum/better-convex-mcp`.
     add('NPM-04', failed ? 'fail' : unreadable ? 'warn' : 'pass', problems.length ? list(problems) : 'newest published versions have GitHub releases')
   }
 

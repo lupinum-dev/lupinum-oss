@@ -51,7 +51,9 @@ const entry = (tag, version, text) => ({ tag, notes: text, prerelease: version.i
 const { version } = packages[0]
 const names = packages.map(pkg => pkg.name)
 const { fixed = [] } = JSON.parse(readFileSync('.changeset/config.json', 'utf8'))
-const shared = names.length === 1 || fixed.some(group => names.every(name => group.includes(name)))
+// Changesets allows globs in `fixed`, such as "@scope/*".
+const matches = (pattern, name) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`).test(name)
+const shared = names.length === 1 || fixed.some(group => names.every(name => group.some(pattern => matches(pattern, name))))
 const releases = shared
   ? [entry(`v${version}`, version, notes.map(n => (notes.length > 1 ? `## ${n.name}\n\n${n.body}` : n.body)).join('\n\n'))]
   : notes.map(n => entry(`${n.name}@${n.version}`, n.version, n.body))
