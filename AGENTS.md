@@ -27,15 +27,15 @@ Run `verify-starters.mjs` when you change `starters/`; the starter smoke workflo
 - The audit only reads. Do not add code that changes GitHub, npm or Vercel settings.
 - Keep tooling lean: a check or script is allowed only if it guards behavior a
   user relies on or a real attack path. See `docs/content/docs/6.adding-tooling.md`.
-- A change to the standard updates the handbook, the starters and the audit
-  together, and adds an entry to `DECISIONS.md`.
+- A change to the standard updates the handbook, the checklist, the starters and
+  the audit together, and adds an entry to `DECISIONS.md`.
 - Never add `NPM_TOKEN`, a Vercel token or any other long-lived credential to a
   workflow or starter.
 - Pin GitHub Actions by full commit SHA; give each job only the permissions it needs.
 
 ## Principles
 
-- The handbook stays at about seven pages. Procedures live there, not in each
+- The handbook stays at about nine pages. Procedures live there, not in each
   library repository. When a page or heading moves, add the old path to
   `redirectFrom` (see `docs/WRITING.md`).
 - Starters produce repositories that work without this repository.
