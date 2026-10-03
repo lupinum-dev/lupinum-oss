@@ -13,6 +13,8 @@ if (help) {
   console.log(usage)
   process.exit(0)
 }
+// The name becomes the nuxt.config key (`nuxt-tour` → `nuxtTour`), which must be an identifier.
+if (!/^[a-z]/.test(values.get('name'))) throw new Error('--name must start with a letter, because it becomes the nuxt.config key.')
 const packageName = values.get('package') ?? `@lupinum/${values.get('name')}`
 validatePackageName(packageName)
 

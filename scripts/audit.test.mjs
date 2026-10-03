@@ -338,6 +338,8 @@ test('each new remote auto check detects its failing or warning case', async () 
     ['GH-08', 'fail', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [] } }],
     ['GH-08', 'warn', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [{ title: 'Dependency Dashboard', updated_at: old }] } }],
     ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [] } }],
+    ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'v11.2.0' }] } }],
+    ['NPM-04', 'pass', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'mcp-v1.2.0' }] } }],
     ['NPM-05', 'warn', { overrides: { 'repos/o/r/pulls?state=open&per_page=100&page=1': [{ number: 42, created_at: old, updated_at: old, head: { ref: 'changeset-release/main' } }] } }],
     ['DOC-01', 'fail', { fetch: async () => ({ ok: false, status: 503 }) }],
     ['DOC-02', 'fail', { fetch: async url => ({ ok: !url.endsWith('/llms.txt'), status: url.endsWith('/llms.txt') ? 404 : 200, text: async () => '# Docs' }) }],

@@ -14,9 +14,9 @@ skill only routes to them. Do not keep rules here.
 
 Use a `lupinum-dev/lupinum-oss` checkout (when this skill sits inside one, the
 root is two directories up; Matthias keeps it at `~/Git/0_libs/lupinum-oss`).
-Check `git remote -v`. Without a checkout, clone it into a temporary directory;
-the audit needs only Node.js and `gh`, so do not install dependencies just to
-read or audit.
+Check `git remote -v`. Without a checkout, clone it into a temporary directory.
+Reading needs nothing; the audit needs `gh` and one `pnpm install` in the
+checkout.
 
 Read the page that owns the task, in `docs/content/docs/`:
 

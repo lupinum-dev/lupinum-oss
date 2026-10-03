@@ -620,13 +620,15 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
           .sort((a, b) => Date.parse(pack.time[b]) - Date.parse(pack.time[a]))[0]
         if (!newest) { failed = true; problems.push(`${name}: no dated published version`) }
         else if (!releases.ok) { unreadable = true; problems.push(`${name}: releases unverified: ${releases.error}`) }
-        else if (!releases.data.some(release => !release.draft && (release.tag_name === `v${newest}` || release.tag_name === `${name}@${newest}` || release.tag_name?.endsWith(newest)))) {
+        else if (!releases.data.some(release => !release.draft && (release.tag_name === `v${newest}` || release.tag_name === `${name}@${newest}` || release.tag_name?.endsWith(`-v${newest}`)))) {
           failed = true
           problems.push(`${name}@${newest}: no GitHub release`)
         }
       }
       catch (error) { unreadable = true; problems.push(`${name}: registry unverified: ${error.message}`) }
     }
+    // Tags: `v1.2.0` (one package or a fixed group), `@scope/a@1.2.0` (independent packages), or a
+    // prefixed `name-v1.2.0` such as `mcp-v1.2.0`. A tag that only ends in the digits does not count.
     add('NPM-04', failed ? 'fail' : unreadable ? 'warn' : 'pass', problems.length ? list(problems) : 'newest published versions have GitHub releases')
   }
 
