@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
 const git = (...args) => spawnSync('git', args, { encoding: 'utf8' })
-const bumps = text => [...text.matchAll(/^\s*(['"]?)(\S+?)\1\s*:\s*['"]?(major|minor|patch)['"]?\s*$/gm)].map(([, , name, bump]) => ({ name, bump }))
+const bumps = text => [...text.matchAll(/^\s*['"]?([^\s'":]+)['"]?\s*:\s*['"]?(major|minor|patch)['"]?\s*$/gm)].map(([, name, bump]) => ({ name, bump }))
 
 const failures = []
 for (const file of readdirSync('.changeset').filter(name => name.endsWith('.md') && name !== 'README.md')) {
@@ -17,8 +17,8 @@ for (const file of readdirSync('.changeset').filter(name => name.endsWith('.md')
   const [, frontMatter, body] = match
   if (!frontMatter.trim() && !body.trim()) continue // `pnpm changeset --empty`
   // The first paragraph is the one-line summary; an optional short body follows after a blank line.
-  const [summary = '', ...details] = body.trim().split(/\r?\n\s*\r?\n/)
-  if (!/^(Fix|Add|Remove|Change) \S/.test(summary.trim())) {
+  const [summary = '', ...details] = body.trim().split(/\r?\n\s*\n/)
+  if (!/^(?:Fix|Add|Remove|Change) \S/.test(summary.trim())) {
     failures.push(`${file}: start with one user-facing line that begins with Fix, Add, Remove or Change.`)
   }
   if (summary.trim().includes('\n')) failures.push(`${file}: keep the summary to one line. Put details after a blank line.`)

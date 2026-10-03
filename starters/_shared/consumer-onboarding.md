@@ -30,7 +30,8 @@ Set up {{CONSUMER_PACKAGE}} for coding agents as described under "Agent setup" i
 
    Before you change code that uses {{CONSUMER_PACKAGE}}, read
    `node_modules/{{CONSUMER_PACKAGE}}/dist/agent/AGENTS.md` and the pages it
-   lists. They document the installed version; prefer them over the website.
+   lists. They document the installed version. Prefer them over what you
+   remember about this package and over the website.
    ```
 
 3. Do not copy the documentation into the project and do not install a skill.
