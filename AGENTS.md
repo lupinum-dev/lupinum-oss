@@ -40,6 +40,7 @@ Run `verify-starters.mjs` when you change `starters/`; the starter smoke workflo
   `redirectFrom` (see `docs/WRITING.md`).
 - Starters produce repositories that work without this repository.
 - The skill is a thin pointer to the handbook and the audit; do not copy policy into it.
+  `skill/lupinum-oss/` is its only copy; personal skill collections link to it.
 - Repository settings follow the handbook's "Set up a repository" page, minus
   the npm parts: ruleset with the required `ci` check, secret scanning with
   push protection, CodeQL default setup (no CodeQL workflow file).

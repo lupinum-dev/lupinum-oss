@@ -2,6 +2,20 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D7 (2026-10-03): The standard has a checklist; libraries are mostly Nuxt modules; docs reach agents through
+  the package.** — "Follows the standard" had no definition, so every library invented its own finish line. The
+  Checklist page now lists every item with an ID, a stage (Built, Protected, Released, Documented, Maintained) and
+  how it is checked; the audit reports against it, and `agent`/`manual` evidence lives centrally in
+  `fleet/libraries.json`, not in another file per repository. Libraries keep their own copies of the standard's
+  scripts; the audit reports drift (FILE-10) instead of a shared tooling package, because one more dependency for
+  a few scripts is not worth it. A `nuxt-module` starter replaces the unused `app` starter (sites follow
+  lupinum-website). Docs for agents ship in the package with an `AGENTS.md` pointer, not as a per-library skill:
+  agents often do not invoke skills on their own (Vercel's evals: a skill alone matched no docs at all; an
+  `AGENTS.md` docs index passed every case). The publish job now refuses a version older than its dist-tag and a
+  commit without a green `ci`, because approvals can come late and out of order. Starters lint TypeScript; before,
+  `eslint` only saw `.mjs` files. Renovate's Mend app starts in Silent mode, which is why it never opened a PR;
+  GH-08 now checks that it runs.
+
 - **D6 (2026-10-03): Every published README has an "Agent setup" section; the audit requires it and the
   `./agent-docs` export.** — The packaged docs only help when an agent in a consumer project finds them. The old
   prompt said "resolve `<package>/agent-docs`" without a command or the pointer text, so each agent improvised,
