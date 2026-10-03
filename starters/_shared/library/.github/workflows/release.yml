@@ -244,9 +244,14 @@ jobs:
             name="$(tar -xOzf "$tarball" package/package.json | jq -r .name)"
             if npm view "$name@$version" version > /dev/null 2>&1; then echo "$name@$version is already on npm"; continue; fi
             tag=latest; if [[ "$version" == *-* ]]; then tag=next; fi
-            # An empty answer means the tag does not exist yet; a failed lookup stops the publish.
-            if ! current="$(npm view "$name" "dist-tags.$tag")"; then
-              echo "::error::Cannot read the $tag dist-tag of $name; re-run when the registry answers."; exit 1
+            # No tag yet (an empty answer, or E404 for a package that does not exist) is fine;
+            # any other failed lookup stops the publish.
+            if ! current="$(npm view "$name" "dist-tags.$tag" 2> "$RUNNER_TEMP/npm-view.err")"; then
+              if ! grep -q E404 "$RUNNER_TEMP/npm-view.err"; then
+                cat "$RUNNER_TEMP/npm-view.err" >&2
+                echo "::error::Cannot read the $tag dist-tag of $name; re-run when the registry answers."; exit 1
+              fi
+              current=""
             fi
             if [[ -n "$current" ]] && ! node -e "$SEMVER_GT" "$version" "$current"; then
               echo "::error::$name@$version is older than $tag ($current). Do not approve stale runs; release from current main."; exit 1
