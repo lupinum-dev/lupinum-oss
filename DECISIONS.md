@@ -2,6 +2,14 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D6 (2026-10-03): Every published README has an "Agent setup" section; the audit requires it and the
+  `./agent-docs` export.** — The packaged docs only help when an agent in a consumer project finds them. The old
+  prompt said "resolve `<package>/agent-docs`" without a command or the pointer text, so each agent improvised,
+  and monorepo packages had no prompt at all because npm shows each package's own README. The section now says
+  where the docs index is, the exact pointer for the consumer's `AGENTS.md`, and where to put it. The pointer uses
+  the `node_modules/<package>` path, not a resolved one: pnpm resolves into `.pnpm/<package>@<version>/`, which
+  breaks after an upgrade.
+
 - **D5 (2026-09-27): The Changesets CLI runs with a read-only token; releases are offered only when no changesets
   are pending.** — D4 kept the version job from starting workflows, but it still held a token that could push
   branches and open pull requests while running dependency code. Now `version-prepare` runs `changeset version`

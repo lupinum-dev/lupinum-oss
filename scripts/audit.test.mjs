@@ -7,7 +7,7 @@ import { auditFiles, auditSettings, compareVersions, localSource } from './audit
 
 const sha = 'a'.repeat(40)
 const library = {
-  'package.json': JSON.stringify({ name: '@lupinum/example', packageManager: 'pnpm@11.21.0', scripts: Object.fromEntries(['build', 'lint', 'typecheck', 'test', 'changeset'].map(s => [s, s]).concat([['verify', 'pnpm audit && pnpm test']])) }),
+  'package.json': JSON.stringify({ name: '@lupinum/example', exports: { './agent-docs': './dist/agent/AGENTS.md' }, files: ['dist'], packageManager: 'pnpm@11.21.0', scripts: Object.fromEntries(['build', 'lint', 'typecheck', 'test', 'changeset'].map(s => [s, s]).concat([['verify', 'pnpm audit && pnpm test']])) }),
   'pnpm-workspace.yaml': 'minimumReleaseAge: 1440\nallowBuilds:\n  esbuild: true\n',
   'renovate.json': '{ "minimumReleaseAge": "1 day" }',
   '.changeset/config.json': '{ "changelog": ["@changesets/changelog-github", { "repo": "lupinum-dev/example" }] }',
@@ -35,7 +35,8 @@ jobs:
       - uses: actions/download-artifact@${sha}
       - run: npm publish ./package.tgz --provenance --access public --ignore-scripts --tag latest
 `,
-  ...Object.fromEntries(['README.md', 'LICENSE', 'SECURITY.md', 'AGENTS.md', 'DECISIONS.md'].map(f => [f, '#'])),
+  ...Object.fromEntries(['LICENSE', 'SECURITY.md', 'AGENTS.md', 'DECISIONS.md'].map(f => [f, '#'])),
+  'README.md': '## Agent setup\n\nRead `node_modules/@lupinum/example/dist/agent/AGENTS.md`.\n',
 }
 
 function audit(overrides = {}) {
@@ -73,6 +74,21 @@ test('real attack paths fail', () => {
   ]) {
     assert.equal(audit({ '.github/workflows/release.yml': release.replace(prJob, `    permissions: ${permissions}\n    steps:\n      - run: ${run}\n`) }).permissions.status, 'fail', `${permissions} + ${run}`)
   }
+})
+
+test('agents in consuming projects can find the docs of the installed version', () => {
+  const pkg = JSON.parse(library['package.json'])
+  const without = (key) => JSON.stringify({ ...pkg, [key]: undefined })
+  assert.equal(audit({ 'package.json': without('exports') })['agent-docs'].status, 'fail')
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dist/index.js'] }) })['agent-docs'].status, 'fail')
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dis'] }) })['agent-docs'].status, 'fail')
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dist/**'] }) })['agent-docs'].status, 'pass')
+  assert.equal(audit({ 'README.md': '# Example\n\nThe agent-docs export is not supported.\n' })['agent-docs'].status, 'fail')
+  // In a monorepo, npm shows each package's own README, so each needs the section.
+  const workspace = { 'pnpm-workspace.yaml': `${library['pnpm-workspace.yaml']}packages:\n  - packages/*\n`, 'packages/vue/package.json': JSON.stringify({ ...pkg, name: '@lupinum/example-vue' }) }
+  assert.equal(audit({ ...workspace, 'packages/vue/README.md': '# Vue\n' })['agent-docs'].status, 'fail')
+  assert.equal(audit({ ...workspace, 'packages/vue/README.md': library['README.md'] })['agent-docs'].status, 'fail')
+  assert.equal(audit({ ...workspace, 'packages/vue/README.md': library['README.md'].replace('example/', 'example-vue/') })['agent-docs'].status, 'pass')
 })
 
 test('a write-capable job may not run repository files through a shell, an interpreter or make', () => {

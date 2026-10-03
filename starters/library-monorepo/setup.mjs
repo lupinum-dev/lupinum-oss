@@ -37,7 +37,8 @@ await generate({
     ['PACKAGE_LIST_MARKDOWN', packages.map(name => `- \`${name}\``).join('\n')],
     ['CONSUMER_ONBOARDING_MARKDOWN', await consumerOnboarding(primary)],
   ],
-  // One directory per package, created from packages/package-template.
+  // One directory per package, created from packages/package-template. Each package README
+  // carries its own agent setup, because npm and node_modules show that README, not the root one.
   prepare: async temporary => {
     const template = join(temporary, 'packages', 'package-template')
     for (const [index, directory] of directories.entries()) {
@@ -47,7 +48,8 @@ await generate({
       for (const file of ['package.json', 'README.md']) {
         const path = join(target, file)
         const content = await readFile(path, 'utf8')
-        await writeFile(path, content.replaceAll('{{PACKAGE_NAME}}', packages[index]).replaceAll('{{PACKAGE_DIR}}', directory))
+        await writeFile(path, content.replaceAll('{{PACKAGE_ONBOARDING}}', await consumerOnboarding(packages[index]))
+          .replaceAll('{{PACKAGE_NAME}}', packages[index]).replaceAll('{{PACKAGE_DIR}}', directory))
       }
     }
     await rm(template, { recursive: true })

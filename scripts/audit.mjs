@@ -102,6 +102,11 @@ const RUNS_CODE = [
 const runsCode = step => RUNS_CODE.some(pattern => pattern.test(typeof step?.run === 'string' ? step.run : '')) || /^\.\//.test(step?.uses ?? '')
 
 export function publicPackages(src) {
+  return publicManifests(src).map(({ manifest }) => manifest.name)
+}
+
+// Public workspace packages with the directory they live in ('' for the root).
+function publicManifests(src) {
   const manifests = ['package.json']
   const patterns = yaml(src.read('pnpm-workspace.yaml'))?.packages ?? []
   for (const pattern of patterns) {
@@ -117,9 +122,8 @@ export function publicPackages(src) {
     }
   }
   return manifests
-    .map(file => json(src.read(file)))
-    .filter(manifest => manifest?.name && !manifest.private)
-    .map(manifest => manifest.name)
+    .map(file => ({ dir: file.slice(0, -'package.json'.length), manifest: json(src.read(file)) }))
+    .filter(({ manifest }) => manifest?.name && !manifest.private)
 }
 
 // ---------- file checks (local and remote) ----------
@@ -245,6 +249,20 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     if (!versionJobs.length) add('version-job', 'warn', 'no job in release.yml runs changeset version')
     else if (writers.length) add('version-job', 'fail', `${list(writers)} runs the Changesets CLI with contents or pull-requests write; run it read-only and push its patch from a job that runs no repository code`)
     else add('version-job', 'pass', `${list(versionJobs.map(([id]) => id))} runs the Changesets CLI read-only`)
+
+    // Agents in consuming projects read the docs of the installed version through the
+    // `./agent-docs` export; the README they see (the package's own) says how to point at it.
+    // `files` entries are matched on directory boundaries (`dist`, `dist/`, `dist/**`); a glob or
+    // negation inside an entry is beyond this check, which then reports the export as not shipped.
+    const agentProblems = []
+    for (const { dir, manifest } of publicManifests(src)) {
+      const target = manifest.exports?.['./agent-docs']?.replace?.(/^\.\//, '')
+      const covers = entry => typeof entry === 'string' && (path => target === path || target.startsWith(`${path}/`))(entry.replace(/^\.\//, '').replace(/\/(\*\*)?$/, ''))
+      if (!target || (manifest.files && !manifest.files.some(covers))) agentProblems.push(`${manifest.name}: no shipped './agent-docs' export`)
+      const readme = src.read(`${dir}README.md`) ?? ''
+      if (!/^## Agent setup$/m.test(readme) || !readme.includes(`node_modules/${manifest.name}/dist/agent/AGENTS.md`)) agentProblems.push(`${manifest.name}: ${dir}README.md has no agent setup section for it`)
+    }
+    add('agent-docs', agentProblems.length ? 'fail' : 'pass', agentProblems.length ? list(agentProblems) : "'./agent-docs' export and README agent setup")
 
     const preview = workflows.get('preview.yml')?.text ?? ''
     add('preview', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pass' : 'warn', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pkg.pr.new' : 'preview.yml does not use pkg.pr.new')
