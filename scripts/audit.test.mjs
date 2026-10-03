@@ -197,7 +197,7 @@ const settings = {
 }
 const provenance = version => ({ version, dist: { attestations: { provenance: {} } } })
 
-async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'NPM-02', 'DOC-03', 'DOC-04', 'DOC-05'].map(id => [id, '2026-10-03 checked'])) }], workspace = null } = {}) {
+async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'NPM-02', 'DOC-03', 'DOC-04', 'DOC-05'].map(id => [id, '2026-10-03 checked'])) }], workspace = null, homepage = 'https://example.com' } = {}) {
   const responses = { ...settings, ...overrides }
   const api = path => (responses[path] === undefined ? { ok: false, notFound: true, error: 'HTTP 404' } : { ok: true, data: responses[path] })
   const src = {
@@ -205,7 +205,7 @@ async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags =
     branch: 'main',
     meta: { allow_auto_merge: false, security_and_analysis: { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'enabled' } }, ...meta },
     files: ['package.json'],
-    read: path => ({ 'package.json': JSON.stringify({ name: '@lupinum/example', homepage: 'https://example.com' }), 'pnpm-workspace.yaml': workspace })[path] ?? null,
+    read: path => ({ 'package.json': JSON.stringify({ name: '@lupinum/example', homepage }), 'pnpm-workspace.yaml': workspace })[path] ?? null,
   }
   const results = await auditSettings(src, { publishes, api, registry, fetch, fleet, now: Date.parse('2026-10-03T00:00:00Z') })
   return Object.fromEntries(results.map(r => [r.id, r]))
@@ -342,6 +342,8 @@ test('each new remote auto check detects its failing or warning case', async () 
     // @lupinum/example: a prefix its name does not end with is another package's release.
     ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'other-v1.2.0' }] } }],
     ['NPM-04', 'pass', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'example-v1.2.0' }] } }],
+    ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'e-v1.2.0' }] } }],
+    ['DOC-01', 'fail', { homepage: 'http://169.254.169.254/latest' }],
     ['NPM-05', 'warn', { overrides: { 'repos/o/r/pulls?state=open&per_page=100&page=1': [{ number: 42, created_at: old, updated_at: old, head: { ref: 'changeset-release/main' } }] } }],
     ['DOC-01', 'fail', { fetch: async () => ({ ok: false, status: 503 }) }],
     ['DOC-02', 'fail', { fetch: async url => ({ ok: !url.endsWith('/llms.txt'), status: url.endsWith('/llms.txt') ? 404 : 200, text: async () => '# Docs' }) }],
@@ -363,13 +365,15 @@ test('each new remote auto check detects its failing or warning case', async () 
 })
 
 test('DECISIONS exceptions apply by item ID, but no-exception safety checks still fail', () => {
-  const decisions = 'FILE-07: approved alternative updater\n(FILE-03): approved unpinned action\nFILE-080 is not FILE-08 evidence'
+  const decisions = '- D2 (2026-10-01): Use another updater (FILE-07) — Renovate is unavailable\n- D3 (2026-10-01): Allow an unpinned action (FILE-03) — no\n'
   const result = audit({ 'DECISIONS.md': decisions, 'renovate.json': null, '.github/workflows/ci.yml': library['.github/workflows/ci.yml'].replace(sha, 'v4') })
   assert.equal(result['FILE-07'].status, 'pass')
-  assert.equal(result['FILE-07'].detail, 'FILE-07: approved alternative updater')
+  assert.equal(result['FILE-07'].detail, '- D2 (2026-10-01): Use another updater (FILE-07) — Renovate is unavailable')
   assert.equal(result['FILE-03'].status, 'fail')
-  const items = checklistItems([{ id: 'FILE-08', status: 'fail', detail: 'missing' }], { files: [], read: () => 'FILE-080: different item' })
-  assert.equal(items[0].status, 'fail')
+  // Only a decision line that names the item in parentheses excepts it; a mention does not.
+  for (const text of ['FILE-08 still applies; do not except it', '- D4 (2026-10-01): Rename FILE-08 docs', '- D4 (2026-10-01): Keep it (FILE-080)']) {
+    assert.equal(checklistItems([{ id: 'FILE-08', status: 'fail', detail: 'missing' }], { files: [], read: () => text })[0].status, 'fail', text)
+  }
 })
 
 test('manual and agent evidence belongs to the matching repository and item', async () => {

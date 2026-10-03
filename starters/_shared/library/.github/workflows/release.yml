@@ -231,7 +231,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           result="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=ci&filter=latest" \
-            --jq '[.check_runs[] | select(.app.slug == "github-actions")][0] | "\(.status) \(.conclusion)"')"
+            --jq '[.check_runs[] | select(.app.slug == "github-actions")][0] // empty | "\(.status) \(.conclusion)"')"
           if [[ "$result" != "completed success" ]]; then
             echo "::error::ci on $GITHUB_SHA is '${result:-missing}'. Re-run this job when ci is green."; exit 1
           fi

@@ -163,7 +163,8 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
   }
   const decisions = (src.read('DECISIONS.md') ?? '').split('\n')
   for (const item of items.values()) {
-    const exception = decisions.find(line => new RegExp(`\\b${item.id}\\b`).test(line))
+    // A decision line (`D4 (date): Keep x (FILE-01) — why`) that names the item in parentheses.
+    const exception = decisions.find(line => /^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line) && line.includes(`(${item.id})`))
     if (exception && !NO_EXCEPTION.has(item.id) && ['fail', 'warn'].includes(item.status)) {
       item.status = 'pass'
       item.detail = exception.trim()
@@ -384,7 +385,8 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   add('lean', excess.length ? 'warn' : 'pass', excess.length ? list(excess) : `${scripts.length} scripts, ${scriptLines} lines in scripts/`)
 
   if (publishes) {
-    const different = OWNED_FILES.filter(file => !matchesStarter(src.read(file), readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8')))
+    const starterFile = file => { try { return readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8') } catch { return null } }
+    const different = OWNED_FILES.filter(file => starterFile(file) !== null && !matchesStarter(src.read(file), starterFile(file)))
     const unexplained = different.filter(file => !decisions.includes(file.split('/').at(-1)))
     add('FILE-10', unexplained.length ? 'warn' : 'pass', unexplained.length
       ? `missing or different from starter: ${list(unexplained)}`
@@ -618,7 +620,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const releasesTogether = name => names.length === 1 || fixed.some(group => group.some(pattern => globMatch(pattern, name)))
     const releaseTag = (tag, name, version) => tag === `${name}@${version}`
       || (tag === `v${version}` && releasesTogether(name))
-      || (tag?.endsWith(`-v${version}`) && name.split('/').at(-1).endsWith(tag.slice(0, -`-v${version}`.length)))
+      || (tag?.endsWith(`-v${version}`) && ((short, prefix) => prefix && (short === prefix || short.endsWith(`-${prefix}`)))(name.split('/').at(-1), tag.slice(0, -`-v${version}`.length)))
     for (const name of names) {
       try {
         const pack = await registry(name)
@@ -640,9 +642,15 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
   }
 
   const homepage = json(src.read('package.json'))?.homepage
+  // The URL comes from the audited repository, so only public HTTPS host names are fetched.
+  const publicHttps = url => { try { const { protocol, hostname } = new URL(url); return protocol === 'https:' && hostname.includes('.') && !/^[\d.]+$|^\[|localhost$|\.local$|\.internal$/.test(hostname) } catch { return false } }
   if (!homepage) {
     add('DOC-01', 'warn', 'no homepage; URL check skipped')
     add('DOC-02', 'warn', 'no homepage; agent Markdown check skipped')
+  }
+  else if (!publicHttps(homepage)) {
+    add('DOC-01', 'fail', `${homepage}: not a public https URL`)
+    add('DOC-02', 'warn', 'homepage not checked')
   }
   else {
     const get = async url => {
@@ -690,7 +698,8 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const severe = alerts.data.filter(alert => ['high', 'critical'].includes(alert.security_advisory?.severity))
     const dangerous = severe.filter(alert => !ignored.has(alert.security_advisory?.ghsa_id))
     const accepted = severe.length - dangerous.length
-    add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts${accepted ? `; ${accepted} ignored in auditConfig` : ''}`)
+    if (!dangerous.length && alerts.data.length >= 100) add('OPS-03', 'warn', '100 or more high or critical alerts; only the first 100 were read')
+    else add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts${accepted ? `; ${accepted} ignored in auditConfig` : ''}`)
   }
   const branches = collection(`repos/${repo}/branches`)
   if (!branches.ok || !prs.ok) unverified('OPS-04', !branches.ok ? branches : prs)

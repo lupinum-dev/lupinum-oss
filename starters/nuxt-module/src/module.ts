@@ -12,6 +12,7 @@ export default defineNuxtModule<ModuleOptions>({
   meta: {
     name: '{{PACKAGE_NAME}}',
     configKey: '{{CONFIG_KEY}}',
+    compatibility: { nuxt: '>=4.0.0' },
   },
   defaults: {
     greeting: 'Hello',

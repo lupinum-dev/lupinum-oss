@@ -25,6 +25,8 @@ Set up {{CONSUMER_PACKAGE}} for coding agents as described under "Agent setup" i
    breaks after an upgrade. If a section for `{{CONSUMER_PACKAGE}}` already
    exists, leave it as it is.
 
+   Use the path you found in place of the sample path:
+
    ```md
    ## {{CONSUMER_PACKAGE}}
 
