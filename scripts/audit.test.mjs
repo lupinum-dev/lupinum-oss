@@ -172,7 +172,7 @@ const settings = {
   'repos/o/r/pulls?state=open&per_page=100&page=1': [],
   'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'v1.2.0' }],
   'repos/o/r/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1': { workflow_runs: [{ conclusion: 'success' }] },
-  'repos/o/r/dependabot/alerts?state=open&per_page=100&page=1': [],
+  'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [],
   'repos/o/r/branches?per_page=100&page=1': [{ name: 'main', commit: { sha: 'a' } }],
   'repos/o/r/rules/branches/main': [
     { type: 'pull_request', parameters: { required_approving_review_count: 0, allowed_merge_methods: ['squash'] } },
@@ -197,7 +197,7 @@ const settings = {
 }
 const provenance = version => ({ version, dist: { attestations: { provenance: {} } } })
 
-async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'NPM-02', 'DOC-03', 'DOC-04', 'DOC-05'].map(id => [id, '2026-10-03 checked'])) }] } = {}) {
+async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'NPM-02', 'DOC-03', 'DOC-04', 'DOC-05'].map(id => [id, '2026-10-03 checked'])) }], workspace = null } = {}) {
   const responses = { ...settings, ...overrides }
   const api = path => (responses[path] === undefined ? { ok: false, notFound: true, error: 'HTTP 404' } : { ok: true, data: responses[path] })
   const src = {
@@ -205,7 +205,7 @@ async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags =
     branch: 'main',
     meta: { allow_auto_merge: false, security_and_analysis: { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'enabled' } }, ...meta },
     files: ['package.json'],
-    read: path => (path === 'package.json' ? JSON.stringify({ name: '@lupinum/example', homepage: 'https://example.com' }) : null),
+    read: path => ({ 'package.json': JSON.stringify({ name: '@lupinum/example', homepage: 'https://example.com' }), 'pnpm-workspace.yaml': workspace })[path] ?? null,
   }
   const results = await auditSettings(src, { publishes, api, registry, fetch, fleet, now: Date.parse('2026-10-03T00:00:00Z') })
   return Object.fromEntries(results.map(r => [r.id, r]))
@@ -344,8 +344,10 @@ test('each new remote auto check detects its failing or warning case', async () 
     ...['<example', 'Component omitted', '<pm-install'].map(placeholder => ['DOC-02', 'fail', { fetch: async url => ({ ok: true, status: 200, text: async () => url.endsWith('/llms-full.txt') ? placeholder : '# Docs' }) }]),
     ['OPS-01', 'fail', { fleet: [] }],
     ['OPS-02', 'fail', { overrides: { 'repos/o/r/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1': { workflow_runs: [{ conclusion: 'failure' }] } } }],
-    ['OPS-03', 'fail', { overrides: { 'repos/o/r/dependabot/alerts?state=open&per_page=100&page=1': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],
-    ['OPS-03', 'warn', { overrides: { 'repos/o/r/dependabot/alerts?state=open&per_page=100&page=1': undefined } }],
+    ['OPS-03', 'fail', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],
+    ['OPS-03', 'warn', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': undefined } }],
+    // An advisory ignored in pnpm's auditConfig (no fix, recorded reason) is accepted there.
+    ['OPS-03', 'pass', { workspace: 'auditConfig:\n  ignoreGhsas:\n    - GHSA-aaaa-bbbb-cccc\n', overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high', ghsa_id: 'GHSA-aaaa-bbbb-cccc' } }] } }],
     ['OPS-04', 'warn', { overrides: { 'repos/o/r/branches?per_page=100&page=1': [{ name: 'abandoned', commit: { sha: 'b' } }], 'repos/o/r/commits/b': { commit: { committer: { date: old } } } } }],
     ['OPS-05', 'warn', { overrides: { 'repos/o/r/pulls?state=open&per_page=100&page=1': [{ number: 42, updated_at: old, head: { ref: 'feature' } }] } }],
   ]

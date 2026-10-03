@@ -128,7 +128,7 @@ function publicManifests(src) {
 
 // Checklist metadata is shared by aggregation, evidence and both output formats.
 const STAGES = ['Not reached', 'Built', 'Protected', 'Released', 'Documented', 'Maintained']
-const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'FILE-11', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'NPM-05'])
+const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'FILE-11', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'NPM-05', 'DOC-03', 'DOC-04', 'DOC-05'])
 const NO_EXCEPTION = new Set(['FILE-03', 'FILE-04', 'FILE-06', 'GH-01', 'GH-02', 'GH-05'])
 const EVIDENCE_CHECKS = { 'NPM-01': 'manual', 'NPM-02': 'manual', 'DOC-03': 'agent', 'DOC-04': 'agent', 'DOC-05': 'agent' }
 const ITEM_IDS = [
@@ -671,11 +671,17 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const run = runs.data.workflow_runs?.[0]
     add('OPS-02', run?.conclusion === 'success' ? 'pass' : 'fail', run ? `latest completed ci.yml on main: ${run.conclusion}` : 'no completed ci.yml run on main')
   }
-  const alerts = collection(`repos/${repo}/dependabot/alerts?state=open`)
+  // The alerts API pages by cursor and rejects `page`, so read the first 100 directly.
+  const alerts = api(`repos/${repo}/dependabot/alerts?state=open&severity=high,critical&per_page=100`)
   if (!alerts.ok) unverified('OPS-03', alerts)
   else {
-    const dangerous = alerts.data.filter(alert => ['high', 'critical'].includes(alert.security_advisory?.severity))
-    add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts`)
+    // An advisory the repository ignores in pnpm's auditConfig (no fix, not reachable) is accepted
+    // there, with its reason; it does not fail here a second time.
+    const ignored = new Set(yaml(src.read('pnpm-workspace.yaml'))?.auditConfig?.ignoreGhsas ?? [])
+    const severe = alerts.data.filter(alert => ['high', 'critical'].includes(alert.security_advisory?.severity))
+    const dangerous = severe.filter(alert => !ignored.has(alert.security_advisory?.ghsa_id))
+    const accepted = severe.length - dangerous.length
+    add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts${accepted ? `; ${accepted} ignored in auditConfig` : ''}`)
   }
   const branches = collection(`repos/${repo}/branches`)
   if (!branches.ok || !prs.ok) unverified('OPS-04', !branches.ok ? branches : prs)
