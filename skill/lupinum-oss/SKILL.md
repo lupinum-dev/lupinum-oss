@@ -1,77 +1,68 @@
 ---
 name: lupinum-oss
-description: Work on Lupinum open-source library repositories using the Lupinum OSS handbook and its read-only audit. Use when creating a new Lupinum library, auditing a repository or the whole fleet against the standard, preparing or unblocking a release (Changesets, npm trusted publishing), handling dependency or security problems, or deciding whether a script or check should be added.
+description: 'Build, adopt, release, document and check Lupinum open-source libraries with the Lupinum OSS handbook, starters and audit. Use when starting or building a new library, npm package, Nuxt module or Vue component library; when bringing an existing lupinum-dev repository onto the standard; for Changesets releases, npm trusted publishing and failed publishes; for library docs and docs for coding agents; for dependency, quarantine, security and CI problems; and to answer "does this library follow the standard?". Client websites belong to lupinum-website; apps with sign-in to lupinum-app.'
+metadata:
+  targets: both
 ---
 
 # Lupinum OSS
 
-The policy lives in the handbook, not here. This skill tells you where to look
-and what you may do.
+The handbook, the checklist, the starters and the audit own the policy. This
+skill only routes to them. Do not keep rules here.
 
-## Sources
+## Find the source
 
-- Handbook: https://oss.lupinum.com (source: `docs/content/docs/` in the
-  `lupinum-dev/lupinum-oss` checkout; when this skill sits inside that
-  checkout, the root is two directories up). Seven pages: overview,
-  set-up-a-repository, releasing, dependencies, security, adding-tooling,
-  troubleshooting. Read only the page the task needs.
-- Audit: `scripts/audit.mjs` in the same checkout.
-- The target repository's own `AGENTS.md` and `DECISIONS.md`. They win over
-  the handbook for that repository; report conflicts instead of picking a
-  third option.
+Use a `lupinum-dev/lupinum-oss` checkout (when this skill sits inside one, the
+root is two directories up; Matthias keeps it at `~/Git/0_libs/lupinum-oss`).
+Check `git remote -v`. Without a checkout, clone it into a temporary directory.
+Reading needs nothing; the audit needs `gh` and one `pnpm install` in the
+checkout.
 
-If there is no checkout, clone `https://github.com/lupinum-dev/lupinum-oss`
-into a temporary directory and run `pnpm install` there.
+Read the page that owns the task, in `docs/content/docs/`:
 
-## Hard limits
+| Task | Page |
+| --- | --- |
+| "Does this library follow the standard?", what is still open | `2.checklist.md`, then run the audit |
+| Start a new library | `3.set-up-a-repository.md` → "Generate the repository", and `starters/` |
+| Bring an existing repository onto the standard | `3.set-up-a-repository.md` → "Adopt the standard in an existing repository" |
+| Changesets, the Version packages PR, a failed publish | `4.releasing.md` |
+| Library docs, docs for coding agents | `5.writing-docs.md` |
+| Dependency updates, the quarantine, `pnpm audit` | `6.dependencies.md` |
+| Vulnerability reports, exposed credentials | `7.security.md` |
+| Adding or removing a script, check or workflow | `8.adding-tooling.md` |
+| Anything that fails | `9.troubleshooting.md` |
 
-- Never publish to npm, never approve the `npm` environment, never push to
-  `main`. Open pull requests.
-- Never create or store an npm token. Never copy a GitHub token into a file,
-  environment variable or secret.
-- Do not change repository settings, rulesets, environments or npm settings
-  unless the user asked for that exact change. The audit only reads.
-- Do not weaken a required check to make something pass.
+In the target repository, read `AGENTS.md` and `DECISIONS.md`. A recorded
+decision there wins for that repository; report a conflict with the handbook
+instead of inventing a third rule.
 
-## Tasks
+## Do the task
 
-**Audit.** Run `pnpm audit:repos OWNER/REPO` (all governed repositories when
-no argument; `node scripts/audit.mjs --local DIR` for files only). Report each
-`FAIL` with the smallest fix, then the `WARN`s. A `WARN` that says
-"unverified" means your access could not read the setting; say so rather than
-guessing.
+- **Start a library.** Choose the starter (`nuxt-module` for a Nuxt module,
+  `library-monorepo` when a Vue package and its Nuxt module ship together,
+  `library` for a framework-free package), generate it, fill in `AGENTS.md`,
+  `DECISIONS.md` and the docs pages, and run `pnpm verify`. Finish with the
+  checklist report below.
+- **Adopt.** Follow the adoption section step by step, including the order of
+  the ruleset change, the npm trusted publisher and the merge.
+- **Change a library.** Follow its `AGENTS.md`. Add a changeset for every
+  user-facing change. Run `pnpm verify` before you hand off.
+- **Check.** Run `pnpm audit:repos OWNER/REPO` (or
+  `node scripts/audit.mjs --local DIR` before the first push). Do the open
+  `agent` items you can do now if the user asked for work, and record their
+  evidence in `fleet/libraries.json`.
 
-**Create a repository.** Follow the handbook's "Set up a repository" page.
-Generate from `starters/`, run `pnpm verify`, open a pull request. Run the
-`gh api` settings commands only if the user authorized them. List the steps
-that need the maintainer (npm trusted publisher and publishing access, Vercel
-project, GitHub App installs, first publication) with links to the handbook.
+## Limits
 
-**Change a library.** Follow its `AGENTS.md`. Add a changeset for every
-user-facing change, written as the "Releasing" page says; a change to
-`dependencies` or `peerDependencies` of a published package needs one that
-bumps that package. Run `pnpm verify` before you hand off. When the maintainer
-asks you to complete someone else's pull request that lacks a changeset,
-push one to its branch.
-
-**Release.** Releases are the maintainer's two clicks. You may prepare
-changesets, review the Version packages pull request (`release.yml` rejects
-anything but `package.json` versions, the version ranges of the repository's
-own packages in `package.json`, `CHANGELOG.md` files and changeset files), and diagnose
-failures with "Releasing → When publishing fails" and "Troubleshooting". A
-manual run of `release.yml` only re-offers a release already versioned on
-`main`. Hand the approval, and any `npm dist-tag` change, back to the
-maintainer.
-
-**Dependencies and security.** Use the "Dependencies" and "Security" pages.
-Never bypass the quarantine silently; an exclusion is one exact version, with
-a comment and a removal date, in a pull request.
-
-**Adding tooling.** Before adding a script, check, workflow or document,
-apply the rule on the "Adding tooling" page. When in doubt, do not add it and
-say why.
+- Never publish to npm, approve the `npm` environment, push to `main`, or
+  create an npm token. Never copy a GitHub token into a file, variable or secret.
+- Change GitHub, npm or Vercel settings only when the user asked for that
+  change, then read the setting back.
+- Never weaken a check, the quarantine or a ruleset to make something pass.
 
 ## Report
 
-State what you changed, what you ran and its result, what is still `FAIL` or
-unverified, and which steps are left for the maintainer.
+Lead with the stage the library reached on the checklist. List the open items
+by item ID, one line each, grouped as "I can do now" and "needs the
+maintainer". Then say what you changed, what you ran with its result, and what
+you could not verify.

@@ -6,7 +6,7 @@
 // their versioned agent docs.
 // Needs the root dependencies (`pnpm install`) for the audit.
 //
-// Usage: node scripts/verify-starters.mjs [library] [library-monorepo] [app]
+// Usage: node scripts/verify-starters.mjs [library] [library-monorepo] [nuxt-module]
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -21,7 +21,7 @@ const starters = {
     tarballs: 2,
     args: ['--title', 'Test monorepo', '--package', '@lupinum/test-core', '--package', '@lupinum/test-vue', '--primary', '@lupinum/test-vue'],
   },
-  'app': { tarballs: 0, args: ['--title', 'Test app'] },
+  'nuxt-module': { tarballs: 1, args: ['--title', 'Test module', '--package', '@lupinum/test-module'] },
 }
 
 const selected = process.argv.slice(2)

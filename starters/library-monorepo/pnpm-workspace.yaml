@@ -11,6 +11,8 @@ allowBuilds:
   '@parcel/watcher': true
   esbuild: true
   sharp: true
+  # Its install script only checks for a native binding, which optional dependencies already provide.
+  unrs-resolver: false
   vue-demi: true
 
 overrides:

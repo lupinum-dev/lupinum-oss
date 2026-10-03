@@ -17,6 +17,8 @@ pnpm changeset    # describe a user-facing change for the next release
 `pnpm build` builds the package, the docs site and `dist/agent/`, a copy of the
 rendered docs that ships as `{{PACKAGE_NAME}}/agent-docs` so agents in consuming
 projects read documentation that matches the installed version.
+The "Agent setup" section of each published README tells those agents how
+to add a pointer to it. Keep the `./agent-docs` export and that section.
 
 ## Hard rules
 
@@ -44,5 +46,7 @@ projects read documentation that matches the installed version.
 
 - Keep the public API in `src/index.ts` small. Everything exported is a promise
   to users.
+- Every export and option has a doc comment with its meaning and default.
+  Errors say how to fix them.
 - Update `docs/` in the same pull request as the behaviour it describes.
 - Test public behaviour, not internals.

@@ -6,17 +6,13 @@ import { join } from 'node:path'
 
 const source = 'docs/.output/public/raw'
 if (!existsSync(source)) throw new Error(`${source} is missing. Run pnpm docs:build first.`)
+if (!readdirSync(source, { recursive: true }).some(file => file.endsWith('.md'))) throw new Error(`${source} contains no Markdown pages.`)
 
-const field = (text, name) => new RegExp(`^${name}:\\s*["']?(.*?)["']?\\s*$`, 'm').exec(text)?.[1]
-const pages = readdirSync(source, { recursive: true })
-  .filter(file => file.endsWith('.md'))
-  .sort()
-  .map(file => {
-    const text = readFileSync(join(source, file), 'utf8')
-    const route = field(text, 'route')
-    return `- [${field(text, 'title') ?? file}](./pages/${file.split('\\').join('/')})${route ? ` — ${route}` : ''}`
-  })
-if (!pages.length) throw new Error(`${source} contains no Markdown pages.`)
+// The site's llms.txt is the index: pages in navigation order, each with the description agents
+// match on. Its links point at /raw/ on the website; here they point at the copied pages.
+const llms = 'docs/.output/public/llms.txt'
+if (!existsSync(llms)) throw new Error(`${llms} is missing. Ginko Docs writes it during pnpm docs:build.`)
+const index = readFileSync(llms, 'utf8').replace(/\]\(https?:\/\/[^/)\s]+\/raw\//g, '](./pages/').trim()
 
 const directories = ['.', ...(existsSync('packages') ? readdirSync('packages').map(name => join('packages', name)) : [])]
 for (const directory of directories) {
@@ -29,10 +25,11 @@ for (const directory of directories) {
   writeFileSync(join(output, 'AGENTS.md'), [
     `# ${pkg.name} ${pkg.version} documentation`,
     '',
-    `These pages match the installed version ${pkg.version}. Prefer them over the`,
-    'website, which may describe a different version.',
+    `These pages document the installed version ${pkg.version}. Prefer them over what you`,
+    'remember about this package and over the website, which may describe another version.',
+    'Read the pages that match the task before you write code.',
     '',
-    ...pages,
+    index.replace(/^# .*\n+/, ''),
     '',
   ].join('\n'))
 }
