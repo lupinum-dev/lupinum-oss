@@ -1,0 +1,7 @@
+{
+  "advisories": {
+    "public": { "title": "Public dependency", "severity": "high", "findings": [{ "paths": ["docs>dep", "packages__x>dep"] }] },
+    "docs": { "title": "Docs dependency", "severity": "critical", "findings": [{ "paths": ["docs>dep"] }] },
+    "moderate": { "title": "Moderate dependency", "severity": "moderate", "findings": [{ "paths": [".>dep"] }] }
+  }
+}

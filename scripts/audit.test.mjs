@@ -7,6 +7,7 @@ import { auditFiles, auditSettings, compareVersions, localSource, checklistItems
 
 const sha = 'a'.repeat(40)
 const library = {
+  'scripts/audit-deps.mjs': readFileSync(new URL('../starters/_shared/library/scripts/audit-deps.mjs', import.meta.url), 'utf8'),
   'docs/vercel.json': '{"ignoreCommand":"true"}',
   'docs/package.json': JSON.stringify({ dependencies: { '@lupinum/ginko-docs': '1.0.0' } }),
   'docs/content/docs/1.start/index.md': '# Start',
@@ -338,7 +339,7 @@ test('required contributing and Claude files fail when missing', () => {
 })
 
 test('starter drift warns, accepts tokens and trailing whitespace, and records explanations', () => {
-  const owned = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
+  const owned = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs', 'scripts/audit-deps.mjs']
   const files = Object.fromEntries(owned.map(file => [file, readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8').replaceAll(/\{\{[A-Z_]+\}\}/g, 'example').split('\n').map(line => `${line}  `).join('\n')]))
   assert.equal(audit({ ...files, 'internals/decisions.md': '' })['FILE-10'].status, 'pass')
   // Renovate moves action pins in every repository; another pinned commit is not drift.

@@ -193,7 +193,7 @@ const LAYOUT = [
 const OLD_LOCATIONS = { '.github/CONTRIBUTING.md': 'CONTRIBUTING.md', '.github/SECURITY.md': 'SECURITY.md', '.claude/CLAUDE.md': 'CLAUDE.md', [DECISIONS_FILE]: 'DECISIONS.md' }
 export const decisionsText = src => src.read(DECISIONS_FILE) ?? src.read('DECISIONS.md') ?? ''
 
-const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
+const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs', 'scripts/audit-deps.mjs']
 // Tokens stand for a segment within one line; whitespace at line ends is immaterial, and so is
 // the commit an action is pinned to, because Renovate updates the pins in every repository.
 function matchesStarter(actual, template) {
@@ -236,8 +236,9 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
       return Array.isArray(values) ? values.map(value => run.replaceAll(new RegExp(`\\$\\{\\{\\s*matrix\\.${key}\\s*\\}\\}`, 'g'), value)) : [run]
     })).join('\n')
     const calls = name => new RegExp(`pnpm (run )?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`, 'm').test(commands)
-    const audits = /\bpnpm audit\b/.test(commands)
-      || Object.entries(pkg?.scripts ?? {}).some(([name, command]) => /\bpnpm audit\b/.test(command) && calls(name))
+    const auditCommand = /\bpnpm audit\b|\bnode scripts\/audit-deps\.mjs\b/
+    const audits = auditCommand.test(commands)
+      || Object.entries(pkg?.scripts ?? {}).some(([name, command]) => auditCommand.test(command) && calls(name))
     add('ci-audit', audits ? 'pass' : 'fail', audits ? 'pnpm audit runs in CI' : 'CI does not run pnpm audit')
   }
 
@@ -738,7 +739,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const dangerous = severe.filter(alert => !ignored.has(alert.security_advisory?.ghsa_id))
     const accepted = severe.length - dangerous.length
     if (!dangerous.length && alerts.data.length >= 100) add('OPS-03', 'warn', '100 or more high or critical alerts; only the first 100 were read')
-    else add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts${accepted ? `; ${accepted} ignored in auditConfig` : ''}`)
+    else add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts; CI decides what blocks${accepted ? `; ${accepted} ignored in auditConfig` : ''}`)
   }
   const branches = collection(`repos/${repo}/branches`)
   if (!branches.ok || !prs.ok) unverified('OPS-04', !branches.ok ? branches : prs)

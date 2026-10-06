@@ -14,7 +14,7 @@
     "test": "vitest run",
     "docs:dev": "pnpm --dir docs dev",
     "docs:build": "pnpm --dir docs build",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm audit --audit-level=high",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && node scripts/audit-deps.mjs",
     "changeset": "changeset"
   },
   "devDependencies": {
