@@ -18,7 +18,9 @@
     },
     {
       "repository": "lupinum-dev/nuxt-board",
-      "evidence": {}
+      "evidence": {
+        "NPM-01": "2026-10-06 — trusted publisher release.yml (environment npm, publish); 2FA required, tokens disallowed"
+      }
     },
     {
       "repository": "lupinum-dev/nuxt-email",
@@ -28,7 +30,9 @@
     },
     {
       "repository": "lupinum-dev/nuxt-pdf",
-      "evidence": {}
+      "evidence": {
+        "NPM-01": "2026-10-06 — trusted publisher release.yml (environment npm, publish); 2FA required, tokens disallowed"
+      }
     },
     {
       "repository": "lupinum-dev/nuxt-photo",
