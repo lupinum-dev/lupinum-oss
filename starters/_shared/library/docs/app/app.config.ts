@@ -11,7 +11,7 @@ export default defineAppConfig({
       ],
     },
     nav: { links: 'auto', socialIcons: true },
-    social: { github: 'https://github.com/{{REPOSITORY}}', discord: 'https://discord.gg/RPH6SeA36N' },
+    social: { github: 'https://github.com/{{REPOSITORY}}', discord: 'https://discord.lupinum.com' },
     repository: { url: 'https://github.com/{{REPOSITORY}}', branch: 'main', contentDirectory: 'docs/content' },
     analytics: { plausible: { scriptId: '{{PLAUSIBLE_ID}}' } },
     feedback: { enabled: true },

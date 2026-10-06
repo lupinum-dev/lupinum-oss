@@ -6,6 +6,7 @@
   <a href="https://www.npmjs.com/package/{{PACKAGE_NAME}}"><img alt="npm" src="https://img.shields.io/npm/v/{{PACKAGE_NAME}}"></a>
   <a href="https://github.com/{{REPOSITORY}}/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/{{REPOSITORY}}/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://discord.lupinum.com"><img alt="Discord" src="https://img.shields.io/badge/Discord-join%20the%20chat-5865F2?logo=discord&logoColor=white"></a>
 </p>
 
 ## Why use {{TITLE}}?
@@ -42,7 +43,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `pnpm verify` before you open a pul
 
 ## Support and security
 
-Ask questions in the [Lupinum OSS Discord](https://discord.gg/RPH6SeA36N). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+Ask questions in the [Lupinum OSS Discord](https://discord.lupinum.com). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

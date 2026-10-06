@@ -9,7 +9,9 @@ Newest first. Format: `Dn (date): decision — why`.
   a short section in "Set up a repository". The weekly routine is written down so an agent can run it for the whole
   fleet. Issues stay easy to open: a short bug form and a short feature form with
   one required field each, and blank issues allowed; the agent collects missing details during triage. A library
-  without the templates warns (FILE-08). DOC-02 ignores placeholders named inside code, because a
+  without the templates warns (FILE-08). People should know where to ask, without being pushed: every library
+  links the Lupinum OSS Discord in four places (README badge, end of Get started, the issue chooser, the packaged
+  agent docs) through `discord.lupinum.com`, so a new invite needs one redirect change, not edits everywhere. DOC-02 ignores placeholders named inside code, because a
   page that explains the check must be able to name them.
 - **D8 (2026-10-06): Drop the stages; agent docs are a docs item; fix starter bugs found in nuxt-photo.** — The
   first adoption reported nuxt-photo at "stage 0" although only the agent-docs export was missing, because that
