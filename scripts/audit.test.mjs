@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { auditFiles, auditSettings, compareVersions, localSource, checklistItems, stageReached } from './audit.mjs'
+import { auditFiles, auditSettings, compareVersions, localSource, checklistItems, follows } from './audit.mjs'
 
 const sha = 'a'.repeat(40)
 const library = {
@@ -80,16 +80,16 @@ test('real attack paths fail', () => {
 test('agents in consuming projects can find the docs of the installed version', () => {
   const pkg = JSON.parse(library['package.json'])
   const without = (key) => JSON.stringify({ ...pkg, [key]: undefined })
-  assert.equal(audit({ 'package.json': without('exports') })['FILE-11'].status, 'fail')
-  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dist/index.js'] }) })['FILE-11'].status, 'fail')
-  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dis'] }) })['FILE-11'].status, 'fail')
-  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dist/**'] }) })['FILE-11'].status, 'pass')
-  assert.equal(audit({ 'README.md': '# Example\n\nThe agent-docs export is not supported.\n' })['FILE-11'].status, 'fail')
+  assert.equal(audit({ 'package.json': without('exports') })['DOC-03'].status, 'fail')
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dist/index.js'] }) })['DOC-03'].status, 'fail')
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dis'] }) })['DOC-03'].status, 'fail')
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, files: ['dist/**'] }) })['DOC-03'].status, 'pass')
+  assert.equal(audit({ 'README.md': '# Example\n\nThe agent-docs export is not supported.\n' })['DOC-03'].status, 'fail')
   // In a monorepo, npm shows each package's own README, so each needs the section.
   const workspace = { 'pnpm-workspace.yaml': `${library['pnpm-workspace.yaml']}packages:\n  - packages/*\n`, 'packages/vue/package.json': JSON.stringify({ ...pkg, name: '@lupinum/example-vue' }) }
-  assert.equal(audit({ ...workspace, 'packages/vue/README.md': '# Vue\n' })['FILE-11'].status, 'fail')
-  assert.equal(audit({ ...workspace, 'packages/vue/README.md': library['README.md'] })['FILE-11'].status, 'fail')
-  assert.equal(audit({ ...workspace, 'packages/vue/README.md': library['README.md'].replace('example/', 'example-vue/') })['FILE-11'].status, 'pass')
+  assert.equal(audit({ ...workspace, 'packages/vue/README.md': '# Vue\n' })['DOC-03'].status, 'fail')
+  assert.equal(audit({ ...workspace, 'packages/vue/README.md': library['README.md'] })['DOC-03'].status, 'fail')
+  assert.equal(audit({ ...workspace, 'packages/vue/README.md': library['README.md'].replace('example/', 'example-vue/') })['DOC-03'].status, 'pass')
 })
 
 test('a write-capable job may not run repository files through a shell, an interpreter or make', () => {
@@ -197,7 +197,7 @@ const settings = {
 }
 const provenance = version => ({ version, dist: { attestations: { provenance: {} } } })
 
-async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'NPM-02', 'DOC-03', 'DOC-04', 'DOC-05'].map(id => [id, '2026-10-03 checked'])) }], workspace = null, homepage = 'https://example.com' } = {}) {
+async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'DOC-04', 'DOC-05', 'DOC-06'].map(id => [id, '2026-10-03 checked'])) }], workspace = null, homepage = 'https://example.com' } = {}) {
   const responses = { ...settings, ...overrides }
   const api = path => (responses[path] === undefined ? { ok: false, notFound: true, error: 'HTTP 404' } : { ok: true, data: responses[path] })
   const src = {
@@ -283,15 +283,17 @@ test('Dependabot security updates warn', async () => {
 
 test('provenance and dist-tags', async () => {
   const stale = { dist: {} }
-  assert.equal((await auditRemote({ tags: { latest: { version: '1.0.0', ...stale } } }))['NPM-03'].status, 'warn')
-  assert.equal((await auditRemote({ tags: { latest: provenance('1.2.0'), next: { version: '1.3.0-rc.0', ...stale } } }))['NPM-03'].status, 'warn')
+  // Only the first, hand-published version may lack provenance (the registry's first version is 1.2.0).
+  assert.equal((await auditRemote({ tags: { latest: { version: '1.2.0', ...stale } } }))['NPM-02'].status, 'warn')
+  assert.equal((await auditRemote({ tags: { latest: { version: '1.0.0', ...stale } } }))['NPM-02'].status, 'fail')
+  assert.equal((await auditRemote({ tags: { latest: provenance('1.2.0'), next: { version: '1.3.0-rc.0', ...stale } } }))['NPM-02'].status, 'fail')
   // latest older than the line next is heading to (an old beta left on latest)
-  assert.equal((await auditRemote({ tags: { latest: provenance('0.8.0-beta.40'), next: provenance('1.0.0-rc.0') } }))['NPM-03'].status, 'warn')
+  assert.equal((await auditRemote({ tags: { latest: provenance('0.8.0-beta.40'), next: provenance('1.0.0-rc.0') } }))['NPM-02'].status, 'warn')
   // next left behind after the stable release
-  assert.equal((await auditRemote({ tags: { latest: provenance('1.0.0'), next: provenance('1.0.0-rc.3') } }))['NPM-05'].status, 'warn')
+  assert.equal((await auditRemote({ tags: { latest: provenance('1.0.0'), next: provenance('1.0.0-rc.3') } }))['NPM-04'].status, 'warn')
   // a minor prerelease on the same line is normal
-  assert.equal((await auditRemote({ tags: { latest: provenance('1.1.0'), next: provenance('1.2.0-next.0') } }))['NPM-03'].status, 'pass')
-  assert.equal((await auditRemote({ tags: { latest: provenance('0.9.0'), next: provenance('0.10.0-rc.0') } }))['NPM-03'].status, 'warn')
+  assert.equal((await auditRemote({ tags: { latest: provenance('1.1.0'), next: provenance('1.2.0-next.0') } }))['NPM-02'].status, 'pass')
+  assert.equal((await auditRemote({ tags: { latest: provenance('0.9.0'), next: provenance('0.10.0-rc.0') } }))['NPM-02'].status, 'warn')
 })
 
 test('a failed registry lookup warns; a missing next tag does not', async () => {
@@ -299,10 +301,10 @@ test('a failed registry lookup warns; a missing next tag does not', async () => 
     if (tag === 'latest') throw new Error('HTTP 503')
     return null
   }
-  const result = (await auditRemote({ registry }))['NPM-03']
+  const result = (await auditRemote({ registry }))['NPM-02']
   assert.equal(result.status, 'warn')
   assert.match(result.detail, /could not verify latest \(HTTP 503\)/)
-  assert.equal((await auditRemote({ tags: { latest: provenance('1.2.0') } }))['NPM-03'].status, 'pass')
+  assert.equal((await auditRemote({ tags: { latest: provenance('1.2.0') } }))['NPM-02'].status, 'pass')
 })
 
 test('compareVersions follows semver precedence', () => {
@@ -321,6 +323,10 @@ test('starter drift warns, accepts tokens and trailing whitespace, and records e
   const owned = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
   const files = Object.fromEntries(owned.map(file => [file, readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8').replaceAll(/\{\{[A-Z_]+\}\}/g, 'example').split('\n').map(line => `${line}  `).join('\n')]))
   assert.equal(audit({ ...files, 'DECISIONS.md': '' })['FILE-10'].status, 'pass')
+  // Renovate moves action pins in every repository; another pinned commit is not drift.
+  const repinned = files['.github/workflows/release.yml'].replace(/(actions\/checkout@)[0-9a-f]{40}( # \S+)?/, `$1${'b'.repeat(40)} # v9.9.9`)
+  assert.notEqual(repinned, files['.github/workflows/release.yml'])
+  assert.equal(audit({ ...files, '.github/workflows/release.yml': repinned, 'DECISIONS.md': '' })['FILE-10'].status, 'pass')
   for (const file of owned) {
     for (const content of [null, `${files[file]}\n# drift`]) {
       const result = audit({ ...files, [file]: content, 'DECISIONS.md': '' })['FILE-10']
@@ -337,14 +343,14 @@ test('each new remote auto check detects its failing or warning case', async () 
     ['GH-03', 'fail', { overrides: { 'repos/o/r': { ...settings['repos/o/r'], allow_auto_merge: true } } }],
     ['GH-08', 'fail', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [] } }],
     ['GH-08', 'warn', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [{ title: 'Dependency Dashboard', updated_at: old }] } }],
-    ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [] } }],
-    ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'v11.2.0' }] } }],
+    ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [] } }],
+    ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'v11.2.0' }] } }],
     // @lupinum/example: a prefix its name does not end with is another package's release.
-    ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'other-v1.2.0' }] } }],
-    ['NPM-04', 'pass', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'example-v1.2.0' }] } }],
-    ['NPM-04', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'e-v1.2.0' }] } }],
+    ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'other-v1.2.0' }] } }],
+    ['NPM-03', 'pass', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'example-v1.2.0' }] } }],
+    ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'e-v1.2.0' }] } }],
     ['DOC-01', 'fail', { homepage: 'http://169.254.169.254/latest' }],
-    ['NPM-05', 'warn', { overrides: { 'repos/o/r/pulls?state=open&per_page=100&page=1': [{ number: 42, created_at: old, updated_at: old, head: { ref: 'changeset-release/main' } }] } }],
+    ['NPM-04', 'warn', { overrides: { 'repos/o/r/pulls?state=open&per_page=100&page=1': [{ number: 42, created_at: old, updated_at: old, head: { ref: 'changeset-release/main' } }] } }],
     ['DOC-01', 'fail', { fetch: async () => ({ ok: false, status: 503 }) }],
     ['DOC-02', 'fail', { fetch: async url => ({ ok: !url.endsWith('/llms.txt'), status: url.endsWith('/llms.txt') ? 404 : 200, text: async () => '# Docs' }) }],
     ...['<example', 'Component omitted', '<pm-install'].map(placeholder => ['DOC-02', 'fail', { fetch: async url => ({ ok: true, status: 200, text: async () => url.endsWith('/llms-full.txt') ? placeholder : '# Docs' }) }]),
@@ -377,26 +383,23 @@ test('DECISIONS exceptions apply by item ID, but no-exception safety checks stil
 })
 
 test('manual and agent evidence belongs to the matching repository and item', async () => {
-  const fleet = [{ repository: 'o/r', evidence: { 'NPM-01': '2026-10-03 trusted publisher checked' } }, { repository: 'other/repo', evidence: { 'NPM-02': 'checked elsewhere' } }]
+  const fleet = [{ repository: 'o/r', evidence: { 'NPM-01': '2026-10-03 2FA and no tokens checked' } }, { repository: 'other/repo', evidence: { 'DOC-06': 'checked elsewhere' } }]
   const result = await auditRemote({ fleet })
-  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', stage: 3, status: 'pass', check: 'manual', detail: '2026-10-03 trusted publisher checked' })
-  assert.equal(result['NPM-02'].status, 'open')
-  assert.equal(result['DOC-05'].status, 'open')
-  assert.equal(result['DOC-05'].check, 'agent')
+  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', status: 'pass', check: 'manual', detail: '2026-10-03 2FA and no tokens checked' })
+  assert.equal(result['DOC-06'].status, 'open')
+  assert.equal(result['DOC-06'].check, 'agent')
 })
 
-test('stage calculation stops at the first fail or open; warnings do not block', () => {
-  for (const [items, maximum, expected] of [
-    [[{ stage: 1, status: 'fail' }], 5, 0],
-    [[{ stage: 1, status: 'warn' }, { stage: 3, status: 'open' }, { stage: 4, status: 'pass' }], 5, 2],
-    [[{ stage: 4, status: 'fail' }, { stage: 5, status: 'pass' }], 5, 3],
-    [[{ stage: 1, status: 'pass' }], 1, 1],
-    [[{ stage: 1, status: 'pass' }, { stage: 5, status: 'warn' }], 5, 5],
-  ]) assert.equal(stageReached(items, maximum), expected)
+test('a repository follows the standard when nothing fails or is open; warnings do not count', () => {
+  for (const [items, expected] of [
+    [[{ status: 'pass' }, { status: 'warn' }], true],
+    [[{ status: 'pass' }, { status: 'fail' }], false],
+    [[{ status: 'warn' }, { status: 'open' }], false],
+  ]) assert.equal(follows(items), expected)
 })
 
 test('repositories publishing nothing omit every library-only item', async () => {
   const fileItems = Object.values(audit({ 'package.json': JSON.stringify({ private: true, scripts: { build: 'build', verify: 'pnpm audit' }, packageManager: 'pnpm@11.21.0' }) }))
   const remoteItems = Object.values(await auditRemote({ publishes: false }))
-  assert.deepEqual([...fileItems, ...remoteItems].filter(item => ['FILE-04', 'FILE-05', 'FILE-10', 'FILE-11', 'GH-02', 'GH-05'].includes(item.id) || item.id.startsWith('NPM-')), [])
+  assert.deepEqual([...fileItems, ...remoteItems].filter(item => ['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'DOC-03', 'DOC-04', 'DOC-05', 'DOC-06'].includes(item.id) || item.id.startsWith('NPM-')), [])
 })

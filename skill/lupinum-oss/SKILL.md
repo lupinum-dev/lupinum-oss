@@ -62,7 +62,7 @@ instead of inventing a third rule.
 
 ## Report
 
-Lead with the stage the library reached on the checklist. List the open items
+Lead with whether the library follows the standard. List the open items
 by item ID, one line each, grouped as "I can do now" and "needs the
 maintainer". Then say what you changed, what you ran with its result, and what
 you could not verify.

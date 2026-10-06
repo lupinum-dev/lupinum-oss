@@ -7,8 +7,9 @@
 //   node scripts/audit.mjs --local <dir>     files in a local checkout only
 //   add --json for machine-readable output
 //
-// Exit code 1 means at least one FAIL. WARN marks excess tooling or something
-// the audit could not read; read the detail before acting on it.
+// A repository follows the standard when every item that applies passes. Exit code 1 means at
+// least one FAIL. WARN marks excess tooling or something the audit could not read; read the
+// detail before acting on it.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
@@ -127,26 +128,23 @@ function publicManifests(src) {
 }
 
 // Checklist metadata is shared by aggregation, evidence and both output formats.
-const STAGES = ['Not reached', 'Built', 'Protected', 'Released', 'Documented', 'Maintained']
-const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'FILE-11', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'NPM-05', 'DOC-03', 'DOC-04', 'DOC-05'])
+const GROUPS = { FILE: 'Files', GH: 'GitHub settings', NPM: 'npm', DOC: 'Docs', OPS: 'Maintenance' }
+const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'DOC-03', 'DOC-04', 'DOC-05', 'DOC-06'])
 const NO_EXCEPTION = new Set(['FILE-03', 'FILE-04', 'FILE-06', 'GH-01', 'GH-02', 'GH-05'])
-const EVIDENCE_CHECKS = { 'NPM-01': 'manual', 'NPM-02': 'manual', 'DOC-03': 'agent', 'DOC-04': 'agent', 'DOC-05': 'agent' }
-const ITEM_IDS = [
-  ...Array.from({ length: 11 }, (_, i) => `FILE-${String(i + 1).padStart(2, '0')}`),
-  ...Array.from({ length: 8 }, (_, i) => `GH-${String(i + 1).padStart(2, '0')}`),
-  ...['NPM', 'DOC', 'OPS'].flatMap(prefix => Array.from({ length: 5 }, (_, i) => `${prefix}-${String(i + 1).padStart(2, '0')}`)),
-]
+const EVIDENCE_CHECKS = { 'NPM-01': 'manual', 'DOC-04': 'agent', 'DOC-05': 'agent', 'DOC-06': 'agent' }
+const ITEM_IDS = Object.entries({ FILE: 10, GH: 8, NPM: 4, DOC: 6, OPS: 5 })
+  .flatMap(([prefix, count]) => Array.from({ length: count }, (_, i) => `${prefix}-${String(i + 1).padStart(2, '0')}`))
 const CHECK_ITEMS = {
   workflows: 'FILE-01', preview: 'FILE-01', 'ci-check': 'FILE-02', 'ci-audit': 'FILE-02',
   'actions-pinned': 'FILE-03', permissions: 'FILE-03', 'pull-request-target': 'FILE-03',
   'publish-job': 'FILE-04', 'no-npm-token': 'FILE-04', changesets: 'FILE-05', 'version-job': 'FILE-05',
   'pnpm-quarantine': 'FILE-06', renovate: 'FILE-07', files: 'FILE-08', lean: 'FILE-08',
-  scripts: 'FILE-09', 'agent-docs': 'FILE-11', ruleset: 'GH-01', 'tag-ruleset': 'GH-02',
+  scripts: 'FILE-09', 'agent-docs': 'DOC-03', ruleset: 'GH-01', 'tag-ruleset': 'GH-02',
   'actions-permissions': 'GH-04', 'npm-environment': 'GH-05', 'secret-scanning': 'GH-06',
-  codeql: 'GH-06', 'dependabot-updates': 'GH-06', secrets: 'GH-07', provenance: 'NPM-03',
+  codeql: 'GH-06', 'dependabot-updates': 'GH-06', secrets: 'GH-07', provenance: 'NPM-02',
   vercel: 'DOC-01', tree: 'FILE-01',
 }
-const itemStage = id => ({ FILE: 1, GH: 2, NPM: 3, DOC: 4, OPS: 5 })[id.split('-')[0]]
+const group = id => id.split('-')[0]
 const SEVERITY = { pass: 0, warn: 1, open: 2, fail: 3 }
 
 export function checklistItems(results, src, { publishes = publicPackages(src).length > 0 } = {}) {
@@ -156,7 +154,7 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
     if (!publishes && LIBRARY_ONLY.has(id)) continue
     const previous = items.get(id)
     items.set(id, {
-      id, stage: itemStage(id), check: EVIDENCE_CHECKS[id] ?? 'auto',
+      id, check: EVIDENCE_CHECKS[id] ?? 'auto',
       status: previous && SEVERITY[previous.status] > SEVERITY[result.status] ? previous.status : result.status,
       detail: previous ? `${previous.detail}; ${result.detail}` : result.detail,
     })
@@ -173,23 +171,18 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
   return [...items.values()].sort((a, b) => ITEM_IDS.indexOf(a.id) - ITEM_IDS.indexOf(b.id))
 }
 
-export function stageReached(items, maximum = 5) {
-  let reached = 0
-  for (let stage = 1; stage <= maximum; stage++) {
-    if (items.some(item => item.stage === stage && !['pass', 'warn'].includes(item.status))) break
-    reached = stage
-  }
-  return reached
-}
+// Warnings ask for a look; they do not stop a repository from following the standard.
+export const follows = items => items.every(item => ['pass', 'warn'].includes(item.status))
 
 function readFleet() {
   return JSON.parse(readFileSync(new URL('../fleet/libraries.json', import.meta.url), 'utf8')).repositories
 }
 
 const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
-// Tokens stand for a segment within one line; whitespace at line ends is immaterial.
+// Tokens stand for a segment within one line; whitespace at line ends is immaterial, and so is
+// the commit an action is pinned to, because Renovate updates the pins in every repository.
 function matchesStarter(actual, template) {
-  const normalize = text => text.split('\n').map(line => line.trimEnd()).join('\n')
+  const normalize = text => text.split('\n').map(line => line.trimEnd().replace(/(uses: [^@\s]+@)[0-9a-f]{40}(?: #.*)?$/, '$1{{SHA}}')).join('\n')
   const pattern = normalize(template).split(/(\{\{[A-Z_]+\}\})/).map(part => /^\{\{[A-Z_]+\}\}$/.test(part)
     ? '[^\\n]*' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')
   return actual !== null && new RegExp(`^${pattern}$`).test(normalize(actual))
@@ -548,15 +541,21 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
   // 18. The versions behind `latest` and `next` carry provenance, and the tags are not stale.
   if (publishes) {
     const notes = []
+    const missing = []
     const waiting = []
     for (const name of publicPackages(src)) {
       const lookup = tag => Promise.resolve().then(() => registry(name, tag)).catch((error) => {
         notes.push(`${name}: could not verify ${tag} (${error.message})`)
         return null
       })
-      const [latest, next] = await Promise.all([lookup('latest'), lookup('next')])
+      const [latest, next, pack] = await Promise.all([lookup('latest'), lookup('next'), lookup()])
+      // Only the first version is published by hand; npm cannot attach a trusted publisher before it exists.
+      const first = Object.keys(pack?.versions ?? {}).filter(version => Number.isFinite(Date.parse(pack.time?.[version])))
+        .sort((a, b) => Date.parse(pack.time[a]) - Date.parse(pack.time[b]))[0]
       for (const [tag, manifest] of [['latest', latest], ['next', next]]) {
-        if (manifest && !manifest.dist?.attestations?.provenance) notes.push(`${name}@${manifest.version} (${tag}) has no provenance (fine only for a bootstrap version)`)
+        if (!manifest || manifest.dist?.attestations?.provenance) continue
+        if (pack && manifest.version !== first) missing.push(`${name}@${manifest.version} (${tag}) has no provenance`)
+        else notes.push(`${name}@${manifest.version} (${tag}) has no provenance (fine only for the first, hand-published version)`)
       }
       if (latest && next) {
         // A release line is what a caret range covers: one major, or one minor before 1.0.
@@ -566,8 +565,8 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
         else if (compareVersions(next.version, latest.version) < 0) waiting.push(`${name}: next ${next.version} is behind latest ${latest.version} (npm dist-tag rm ${name} next)`)
       }
     }
-    add('provenance', notes.length ? 'warn' : 'pass', notes.length ? list(notes) : 'latest and next have provenance')
-    add('NPM-05', waiting.length ? 'warn' : 'pass', waiting.length ? list(waiting) : 'dist-tags are current')
+    add('provenance', missing.length ? 'fail' : notes.length ? 'warn' : 'pass', missing.length || notes.length ? list([...missing, ...notes]) : 'latest and next have provenance')
+    add('NPM-04', waiting.length ? 'warn' : 'pass', waiting.length ? list(waiting) : 'dist-tags are current')
   }
   // Collection endpoints must include all pages: old PRs and dashboards can be beyond page one.
   const collection = (path) => {
@@ -605,10 +604,10 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
 
   const prs = collection(`repos/${repo}/pulls?state=open`)
   if (publishes) {
-    if (!prs.ok) unverified('NPM-05', prs)
+    if (!prs.ok) unverified('NPM-04', prs)
     else {
       const stale = prs.data.filter(pr => pr.head?.ref === 'changeset-release/main' && age(pr.created_at) > 14)
-      add('NPM-05', stale.length ? 'warn' : 'pass', stale.length ? `Version packages PR older than 14 days: ${list(stale.map(pr => `#${pr.number}`))}` : 'no overdue Version packages PR')
+      add('NPM-04', stale.length ? 'warn' : 'pass', stale.length ? `Version packages PR older than 14 days: ${list(stale.map(pr => `#${pr.number}`))}` : 'no overdue Version packages PR')
     }
     const releases = collection(`repos/${repo}/releases`)
     const problems = []
@@ -638,7 +637,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     }
     // Tags: `v1.2.0` (one package or a Changesets fixed group), `@scope/a@1.2.0`, or a prefix the
     // package name ends with, such as `mcp-v1.2.0` for `@lupinum/better-convex-mcp`.
-    add('NPM-04', failed ? 'fail' : unreadable ? 'warn' : 'pass', problems.length ? list(problems) : 'newest published versions have GitHub releases')
+    add('NPM-03', failed ? 'fail' : unreadable ? 'warn' : 'pass', problems.length ? list(problems) : 'newest published versions have GitHub releases')
   }
 
   const homepage = json(src.read('package.json'))?.homepage
@@ -732,17 +731,14 @@ const LABEL = { pass: 'PASS', fail: 'FAIL', warn: 'WARN', open: 'OPEN' }
 
 async function main(argv) {
   if (argv.includes('--help')) {
-    console.log('Usage: node scripts/audit.mjs [OWNER/REPO ...] [--json]\n       node scripts/audit.mjs --local [DIR] [--json]\nWithout targets, audit every repository in fleet/libraries.json. Local mode audits stage 1 only.')
+    console.log('Usage: node scripts/audit.mjs [OWNER/REPO ...] [--json]\n       node scripts/audit.mjs --local [DIR] [--json]\nWithout targets, audit every repository in fleet/libraries.json. Local mode checks files only.')
     return 0
   }
   const asJson = argv.includes('--json')
   const args = argv.filter(arg => arg !== '--json')
   const local = args[0] === '--local'
   const reports = []
-  const report = (src, items) => {
-    if (local) items = items.filter(item => item.stage === 1)
-    reports.push({ repository: src.repository ?? src.label, stage: stageReached(items, local ? 1 : 5), items })
-  }
+  const report = (src, items) => reports.push({ repository: src.repository ?? src.label, follows: !local && follows(items), items })
   if (local) {
     const src = localSource(args[1] ?? '.')
     report(src, auditFiles(src))
@@ -757,24 +753,22 @@ async function main(argv) {
         report(src, checklistItems([...auditFiles(src, { publishes }), ...(await auditSettings(src, { publishes, fleet }))], src, { publishes }))
       }
       catch (error) {
-        // An unreadable source cannot establish any stage.
-        reports.push({ repository, stage: 0, items: [{ id: 'FILE-01', stage: 1, check: 'auto', status: 'fail', detail: `repository unreadable: ${error.message}` }] })
+        reports.push({ repository, follows: false, items: [{ id: 'FILE-01', check: 'auto', status: 'fail', detail: `repository unreadable: ${error.message}` }] })
       }
     }
   }
   if (asJson) console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2))
   else {
-    for (const { repository, stage, items } of reports) {
-      console.log(`\n${repository}${local ? ' (local: stage 1 only)' : ''}`)
-      for (let n = 1; n <= (local ? 1 : 5); n++) {
-        const group = items.filter(item => item.stage === n)
-        if (!group.length) continue
-        console.log(`${n}. ${STAGES[n]}`)
-        for (const { id, status, detail } of group) console.log(`  ${LABEL[status].padEnd(4)}  ${id}  ${detail}`)
+    for (const { repository, follows, items } of reports) {
+      console.log(`\n${repository}${local ? ' (local: files only)' : ''}`)
+      for (const [prefix, title] of Object.entries(GROUPS)) {
+        const members = items.filter(item => group(item.id) === prefix)
+        if (!members.length) continue
+        console.log(title)
+        for (const { id, status, detail } of members) console.log(`  ${LABEL[status].padEnd(4)}  ${id}  ${detail}`)
       }
-      console.log(`Stage reached: ${stage}. ${STAGES[stage]}`)
+      if (!local) console.log(`Follows the standard: ${follows ? 'yes' : 'no'}`)
       const open = items.filter(item => item.status !== 'pass')
-        .sort((a, b) => (a.stage <= stage ? 6 : a.stage) - (b.stage <= stage ? 6 : b.stage))
       console.log(`Open: ${open.length ? open.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
     }
   }
