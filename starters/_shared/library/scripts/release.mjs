@@ -1,6 +1,7 @@
 // Used by .github/workflows/release.yml. Never publishes anything itself.
 //   node scripts/release.mjs check  prints publish=true when a public workspace package version is not on npm yet
 //   node scripts/release.mjs pack   packs those packages into release/ with releases.json (run `pnpm build` first)
+//   node scripts/release.mjs version-needed  prints true when `changeset version` has work: a pending changeset or a prerelease exit
 // Tags: `v<version>` when there is one public package or all of them are in one Changesets `fixed`
 // group; otherwise one `<name>@<version>` tag and GitHub release per package.
 import { spawnSync } from 'node:child_process'
@@ -8,7 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { join, resolve } from 'node:path'
 
 const command = process.argv[2]
-if (!['check', 'pack', 'version-needed', 'baseline'].includes(command)) throw new Error('Usage: node scripts/release.mjs check|pack|version-needed|baseline')
+if (!['check', 'pack', 'version-needed'].includes(command)) throw new Error('Usage: node scripts/release.mjs check|pack|version-needed')
 
 function run(program, args, options = {}) {
   const result = spawnSync(program, args, { encoding: 'utf8', ...options })
@@ -38,19 +39,6 @@ const { fixed = [] } = JSON.parse(readFileSync('.changeset/config.json', 'utf8')
 const matches = (pattern, name) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`).test(name)
 const shared = names.length === 1 || fixed.some(group => names.every(name => group.some(pattern => matches(pattern, name))))
 const tag = (pkg, version) => shared ? `v${version}` : `${pkg.name}@${version}`
-
-if (command === 'baseline') {
-  const tags = new Set()
-  for (const pkg of packages) {
-    const distTag = pkg.version.includes('-') ? 'next' : 'latest'
-    const result = spawnSync('npm', ['view', `${pkg.name}@${distTag}`, 'version'], { encoding: 'utf8' })
-    if (result.status !== 0 && !/E404/.test(result.stderr)) throw new Error(`npm view ${pkg.name} failed:\n${result.stderr}`)
-    const version = result.status === 0 ? result.stdout.trim() : ''
-    if (version) tags.add(tag(pkg, version))
-  }
-  if (tags.size) console.log([...tags].join('\n'))
-  process.exit(0)
-}
 
 const unpublished = packages.filter(pkg => !isOnNpm(pkg))
 if (command === 'check') {

@@ -194,15 +194,35 @@ jobs:
           package-manager-cache: false
       - run: corepack enable pnpm
       # Shown on the run page where the maintainer approves the publish: what changed in the release
-      # machinery since the last release. Without a second reviewer this is the check before approval.
+      # machinery since the version npm has now. Without a second reviewer this is the check before
+      # approval, so it runs no repository code: the files it checks must not choose the comparison.
       - name: Release files changed since the last release
         run: |
-          baselines="$(node scripts/release.mjs baseline)"
-          while IFS= read -r last; do
-            if [[ -z "$last" ]] || ! git rev-parse --verify "refs/tags/$last" > /dev/null 2>&1; then
-              echo "## Release files: first release, nothing to compare" >> "$GITHUB_STEP_SUMMARY"
-              continue
+          baselines=""
+          for manifest in $(git ls-files package.json ':(glob)packages/*/package.json'); do
+            jq -e '.private != true' "$manifest" > /dev/null || continue
+            name="$(jq -r .name "$manifest")"
+            version="$(jq -r .version "$manifest")"
+            if ! tags="$(npm view "$name" dist-tags --json 2> "$RUNNER_TEMP/npm-view.err")"; then
+              grep -q E404 "$RUNNER_TEMP/npm-view.err" && continue # not on npm yet
+              echo "::warning title=Release files not compared::Cannot read the dist-tags of $name. Compare the release files with the last release by hand."
+              exit 0
             fi
+            tag=latest; if [[ "$version" == *-* ]]; then tag=next; fi
+            published="$(jq -r --arg tag "$tag" '.[$tag] // .latest // empty' <<< "$tags")"
+            for candidate in "v$published" "$name@$published"; do
+              if [[ -n "$published" ]] && git rev-parse --verify --quiet "refs/tags/$candidate" > /dev/null; then
+                baselines+="$candidate"$'\n'
+                break
+              fi
+            done
+          done
+          baselines="$(sort -u <<< "$baselines" | sed '/^$/d')"
+          if [[ -z "$baselines" ]]; then
+            echo "## Release files: first release, nothing to compare" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          while IFS= read -r last; do
             changed="$(git diff --name-only "$last" HEAD -- .github/workflows .github/actions scripts/release.mjs .changeset/config.json)"
             if [[ -z "$changed" ]]; then
               echo "## Release files unchanged since $last" >> "$GITHUB_STEP_SUMMARY"
@@ -214,6 +234,7 @@ jobs:
               echo
               echo "Review these changes before you approve the npm deployment:"
               echo
+              # shellcheck disable=SC2016 # the backticks are Markdown
               sed 's/^/- `/; s/$/`/' <<< "$changed"
               echo
               echo "[Compare $last with this commit]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$last...$GITHUB_SHA)"
