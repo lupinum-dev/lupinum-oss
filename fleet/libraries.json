@@ -39,6 +39,18 @@
     {
       "repository": "lupinum-dev/website-config",
       "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/ginko-editor",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/ginko-cms",
+      "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/nuxt-basin",
+      "evidence": {}
     }
   ]
 }
