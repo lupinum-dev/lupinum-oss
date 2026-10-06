@@ -11,9 +11,10 @@ Newest first. Format: `Dn (date): decision — why`.
   repository. The starter's release check ran while changesets were pending: a skipped step leaves its output
   empty, and `'' == '0'` is true in expressions. The Upgrade page starts with the first stable release; between
   prereleases nobody depends on the old API and the changelog is enough. Prereleases are named `next`; a line
-  already in another prerelease keeps its name until its stable release. Considered and not changed: auditing
-  only production dependencies. `pnpm audit --prod` still covers the docs app, whose Nuxt pulls in the same
-  tree, and `--filter` on `pnpm audit` behaves differently between pnpm 11 releases.
+  already in another prerelease keeps its name until its stable release. A version without provenance fails NPM-02
+  unless it is the package's first, hand-published version. Considered and not changed: auditing only
+  production dependencies. `pnpm audit --prod` still covers the docs app, whose Nuxt pulls in the same tree. And
+  `--filter` on `pnpm audit` behaves differently between pnpm 11 releases.
 - **D7 (2026-10-03): The standard has a checklist; libraries are mostly Nuxt modules; docs reach agents through
   the package.** — "Follows the standard" had no definition, so every library invented its own finish line. The
   Checklist page now lists every item with an ID, a stage (Built, Protected, Released, Documented, Maintained) and

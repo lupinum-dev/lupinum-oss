@@ -541,15 +541,21 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
   // 18. The versions behind `latest` and `next` carry provenance, and the tags are not stale.
   if (publishes) {
     const notes = []
+    const missing = []
     const waiting = []
     for (const name of publicPackages(src)) {
       const lookup = tag => Promise.resolve().then(() => registry(name, tag)).catch((error) => {
         notes.push(`${name}: could not verify ${tag} (${error.message})`)
         return null
       })
-      const [latest, next] = await Promise.all([lookup('latest'), lookup('next')])
+      const [latest, next, pack] = await Promise.all([lookup('latest'), lookup('next'), lookup()])
+      // Only the first version is published by hand; npm cannot attach a trusted publisher before it exists.
+      const first = Object.keys(pack?.versions ?? {}).filter(version => Number.isFinite(Date.parse(pack.time?.[version])))
+        .sort((a, b) => Date.parse(pack.time[a]) - Date.parse(pack.time[b]))[0]
       for (const [tag, manifest] of [['latest', latest], ['next', next]]) {
-        if (manifest && !manifest.dist?.attestations?.provenance) notes.push(`${name}@${manifest.version} (${tag}) has no provenance (fine only for a bootstrap version)`)
+        if (!manifest || manifest.dist?.attestations?.provenance) continue
+        if (pack && manifest.version !== first) missing.push(`${name}@${manifest.version} (${tag}) has no provenance`)
+        else notes.push(`${name}@${manifest.version} (${tag}) has no provenance (fine only for the first, hand-published version)`)
       }
       if (latest && next) {
         // A release line is what a caret range covers: one major, or one minor before 1.0.
@@ -559,7 +565,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
         else if (compareVersions(next.version, latest.version) < 0) waiting.push(`${name}: next ${next.version} is behind latest ${latest.version} (npm dist-tag rm ${name} next)`)
       }
     }
-    add('provenance', notes.length ? 'warn' : 'pass', notes.length ? list(notes) : 'latest and next have provenance')
+    add('provenance', missing.length ? 'fail' : notes.length ? 'warn' : 'pass', missing.length || notes.length ? list([...missing, ...notes]) : 'latest and next have provenance')
     add('NPM-04', waiting.length ? 'warn' : 'pass', waiting.length ? list(waiting) : 'dist-tags are current')
   }
   // Collection endpoints must include all pages: old PRs and dashboards can be beyond page one.

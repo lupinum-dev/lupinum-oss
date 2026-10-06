@@ -283,8 +283,10 @@ test('Dependabot security updates warn', async () => {
 
 test('provenance and dist-tags', async () => {
   const stale = { dist: {} }
-  assert.equal((await auditRemote({ tags: { latest: { version: '1.0.0', ...stale } } }))['NPM-02'].status, 'warn')
-  assert.equal((await auditRemote({ tags: { latest: provenance('1.2.0'), next: { version: '1.3.0-rc.0', ...stale } } }))['NPM-02'].status, 'warn')
+  // Only the first, hand-published version may lack provenance (the registry's first version is 1.2.0).
+  assert.equal((await auditRemote({ tags: { latest: { version: '1.2.0', ...stale } } }))['NPM-02'].status, 'warn')
+  assert.equal((await auditRemote({ tags: { latest: { version: '1.0.0', ...stale } } }))['NPM-02'].status, 'fail')
+  assert.equal((await auditRemote({ tags: { latest: provenance('1.2.0'), next: { version: '1.3.0-rc.0', ...stale } } }))['NPM-02'].status, 'fail')
   // latest older than the line next is heading to (an old beta left on latest)
   assert.equal((await auditRemote({ tags: { latest: provenance('0.8.0-beta.40'), next: provenance('1.0.0-rc.0') } }))['NPM-02'].status, 'warn')
   // next left behind after the stable release
