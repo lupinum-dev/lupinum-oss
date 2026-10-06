@@ -7,7 +7,7 @@
 //   node scripts/audit.mjs --local <dir>     files in a local checkout only
 //   add --json for machine-readable output
 //
-// A repository follows the standard when every item that applies passes. Exit code 1 means at
+// A repository follows the standard when no must item fails or lacks evidence; advice only warns. Exit code 1 means at
 // least one FAIL. WARN marks excess tooling or something the audit could not read; read the
 // detail before acting on it.
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -129,44 +129,50 @@ function publicManifests(src) {
 
 // Checklist metadata is shared by aggregation, evidence and both output formats.
 const GROUPS = { FILE: 'Files', GH: 'GitHub settings', NPM: 'npm', DOC: 'Docs', OPS: 'Maintenance' }
-const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'DOC-03', 'DOC-04', 'DOC-05', 'DOC-06'])
+const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'DOC-03', 'DOC-04', 'DOC-05'])
 const NO_EXCEPTION = new Set(['FILE-03', 'FILE-04', 'FILE-06', 'GH-01', 'GH-02', 'GH-05'])
-const EVIDENCE_CHECKS = { 'NPM-01': 'manual', 'DOC-04': 'agent', 'DOC-05': 'agent', 'DOC-06': 'agent' }
-const ITEM_IDS = Object.entries({ FILE: 10, GH: 8, NPM: 4, DOC: 6, OPS: 5 })
+const ADVICE = new Set(['FILE-07', 'FILE-08', 'FILE-09', 'GH-03', 'GH-08', 'NPM-04', 'DOC-04', 'DOC-05', 'OPS-03', 'OPS-04', 'OPS-05'])
+const EVIDENCE_CHECKS = { 'NPM-01': 'manual' }
+const ITEM_IDS = Object.entries({ FILE: 10, GH: 8, NPM: 4, DOC: 5, OPS: 5 })
   .flatMap(([prefix, count]) => Array.from({ length: count }, (_, i) => `${prefix}-${String(i + 1).padStart(2, '0')}`))
 const CHECK_ITEMS = {
-  workflows: 'FILE-01', preview: 'FILE-01', 'ci-check': 'FILE-02', 'ci-audit': 'FILE-02',
+  workflows: 'FILE-01', 'ci-check': 'FILE-02', 'ci-audit': 'FILE-02',
   'actions-pinned': 'FILE-03', permissions: 'FILE-03', 'pull-request-target': 'FILE-03',
-  'publish-job': 'FILE-04', 'no-npm-token': 'FILE-04', changesets: 'FILE-05', 'version-job': 'FILE-05',
+  'no-npm-token': 'FILE-04', changesets: 'FILE-05',
   'pnpm-quarantine': 'FILE-06', renovate: 'FILE-07', files: 'FILE-08', lean: 'FILE-08',
   scripts: 'FILE-09', 'agent-docs': 'DOC-03', ruleset: 'GH-01', 'tag-ruleset': 'GH-02',
   'actions-permissions': 'GH-04', 'npm-environment': 'GH-05', 'secret-scanning': 'GH-06',
   codeql: 'GH-06', 'dependabot-updates': 'GH-06', secrets: 'GH-07', provenance: 'NPM-02',
-  vercel: 'DOC-01', tree: 'FILE-01',
+  vercel: 'DOC-01', tree: 'FILE-01', 'ci-health': 'OPS-02', 'release-health': 'OPS-02',
 }
 const group = id => id.split('-')[0]
 const SEVERITY = { pass: 0, warn: 1, open: 2, fail: 3 }
 
 export function checklistItems(results, src, { publishes = publicPackages(src).length > 0 } = {}) {
+  // Preserve raw checks across the local/remote merge, without adding them to JSON output.
+  const checks = results.flatMap(result => result.results ?? [result])
+  const count = id => checks.filter(result => (CHECK_ITEMS[result.id] ?? result.id) === id).length
+  const decisions = decisionsText(src).split('\n').filter(line => /^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line))
   const items = new Map()
-  for (const result of results) {
+  for (const result of checks) {
     const id = CHECK_ITEMS[result.id] ?? result.id
     if (!publishes && LIBRARY_ONLY.has(id)) continue
+    if (/^DOC-0[1-4]$/.test(id) && !src.files.some(file => file.startsWith('docs/'))) continue
+    const key = result.key ?? result.id
+    const exception = decisions.find(line => line.includes(`(${id}: ${key})`) || (count(id) === 1 && line.includes(`(${id})`)))
+    const forbidden = NO_EXCEPTION.has(id) || (id === 'FILE-10' && key === 'release.yml')
+    const excepted = exception && !forbidden && ['fail', 'warn'].includes(result.status)
+    const status = excepted ? 'pass' : ADVICE.has(id) && result.status === 'fail' ? 'warn' : result.status
+    const text = excepted ? exception.trim() : result.detail
+    const detail = key === id ? text : `[${key}] ${text}`
     const previous = items.get(id)
-    items.set(id, {
-      id, check: EVIDENCE_CHECKS[id] ?? 'auto',
-      status: previous && SEVERITY[previous.status] > SEVERITY[result.status] ? previous.status : result.status,
-      detail: previous ? `${previous.detail}; ${result.detail}` : result.detail,
-    })
-  }
-  const decisions = decisionsText(src).split('\n')
-  for (const item of items.values()) {
-    // A decision line (`D4 (date): Keep x (FILE-01) — why`) that names the item in parentheses.
-    const exception = decisions.find(line => /^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line) && line.includes(`(${item.id})`))
-    if (exception && !NO_EXCEPTION.has(item.id) && ['fail', 'warn'].includes(item.status)) {
-      item.status = 'pass'
-      item.detail = exception.trim()
+    const item = {
+      id, advice: ADVICE.has(id), check: id === 'DOC-05' ? 'agent' : EVIDENCE_CHECKS[id] ?? 'auto',
+      status: previous && SEVERITY[previous.status] > SEVERITY[status] ? previous.status : status,
+      detail: previous ? `${previous.detail}; ${detail}` : detail,
     }
+    Object.defineProperty(item, 'results', { value: [...(previous?.results ?? []), result] })
+    items.set(id, item)
   }
   return [...items.values()].sort((a, b) => ITEM_IDS.indexOf(a.id) - ITEM_IDS.indexOf(b.id))
 }
@@ -190,7 +196,7 @@ const LAYOUT = [
 const OLD_LOCATIONS = { '.github/CONTRIBUTING.md': 'CONTRIBUTING.md', '.github/SECURITY.md': 'SECURITY.md', '.claude/CLAUDE.md': 'CLAUDE.md', [DECISIONS_FILE]: 'DECISIONS.md' }
 export const decisionsText = src => src.read(DECISIONS_FILE) ?? src.read('DECISIONS.md') ?? ''
 
-const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
+const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs', 'scripts/audit-deps.mjs']
 // Tokens stand for a segment within one line; whitespace at line ends is immaterial, and so is
 // the commit an action is pinned to, because Renovate updates the pins in every repository.
 function matchesStarter(actual, template) {
@@ -204,7 +210,7 @@ function matchesStarter(actual, template) {
 
 export function auditFiles(src, { publishes = publicPackages(src).length > 0 } = {}) {
   const results = []
-  const add = (id, status, detail) => results.push({ id, status, detail })
+  const add = (id, status, detail, key) => results.push({ id, status, detail, ...(key ? { key } : {}) })
   const workflowFiles = src.files.filter(file => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file))
   const workflows = new Map(workflowFiles.map(file => [file.slice('.github/workflows/'.length), { text: src.read(file) ?? '', data: yaml(src.read(file)) }]))
   const pkg = json(src.read('package.json'))
@@ -213,18 +219,19 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   const expected = publishes ? ['ci.yml', 'release.yml', 'preview.yml'] : ['ci.yml']
   const missing = expected.filter(name => !workflows.has(name))
   const extra = [...workflows.keys()].filter(name => !expected.includes(name))
-  // An extra workflow is fine when internals/decisions.md names it and says why.
-  const decisions = decisionsText(src)
-  const unexplained = extra.filter(name => !decisions.includes(name))
-  if (missing.length) add('workflows', 'fail', `missing ${list(missing)}`)
-  else if (unexplained.length) add('workflows', 'warn', `extra workflows: ${list(unexplained)} (standard is ${list(expected)}; record a reason in internals/decisions.md or remove)`)
-  else add('workflows', 'pass', `${list(expected)}${extra.length ? `; ${list(extra)} explained in internals/decisions.md` : ''}`)
+  add('workflows', missing.length ? 'fail' : 'pass', missing.length ? `missing ${list(missing)}` : list(expected))
+  for (const name of extra) add('FILE-01', 'warn', `extra workflow; remove it or record why with (FILE-01: ${name})`, name)
 
   // 2. ci.yml produces the required `ci` check and runs the dependency audit.
   const ci = workflows.get('ci.yml')
   if (ci) {
-    const hasCiJob = Object.entries(ci.data?.jobs ?? {}).some(([id, job]) => (job?.name ?? id) === 'ci')
-    add('ci-check', hasCiJob ? 'pass' : 'fail', hasCiJob ? "job 'ci' exists" : "no job named 'ci' (the ruleset requires this check)")
+    const jobs = ci.data?.jobs ?? {}
+    const gate = jobs.ci
+    const needs = typeof gate?.needs === 'string' ? [gate.needs] : gate?.needs ?? []
+    const others = Object.keys(jobs).filter(id => id !== 'ci')
+    // A single job named `ci` is the check itself; a gate job must report the result of every other job.
+    const valid = gate && (gate.name ?? 'ci') === 'ci' && (!others.length || (['always()', '${{ always() }}'].includes(gate.if) && Array.isArray(needs) && needs.length === others.length && others.every(id => needs.includes(id))))
+    add('ci-check', valid ? 'pass' : 'fail', valid ? "job 'ci' waits for every other job" : "job 'ci' must have if: always() and need every other job")
     // Directly, through a matrix value (`pnpm ${{ matrix.task }}`), or through a package script CI calls.
     const commands = Object.values(ci.data?.jobs ?? {}).flatMap(job => steps(job).flatMap((step) => {
       const run = typeof step?.run === 'string' ? step.run : ''
@@ -233,9 +240,10 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
       return Array.isArray(values) ? values.map(value => run.replaceAll(new RegExp(`\\$\\{\\{\\s*matrix\\.${key}\\s*\\}\\}`, 'g'), value)) : [run]
     })).join('\n')
     const calls = name => new RegExp(`pnpm (run )?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`, 'm').test(commands)
-    const audits = /\bpnpm audit\b/.test(commands)
-      || Object.entries(pkg?.scripts ?? {}).some(([name, command]) => /\bpnpm audit\b/.test(command) && calls(name))
-    add('ci-audit', audits ? 'pass' : 'fail', audits ? 'pnpm audit runs in CI' : 'CI does not run pnpm audit')
+    const auditCommand = /\bpnpm audit\b|\bnode scripts\/audit-deps\.mjs\b/
+    const audits = auditCommand.test(commands)
+      || Object.entries(pkg?.scripts ?? {}).some(([name, command]) => auditCommand.test(command) && calls(name))
+    add('ci-audit', audits ? 'pass' : 'fail', audits ? 'CI runs the dependency audit' : 'CI runs no dependency audit (node scripts/audit-deps.mjs, or pnpm audit without packages)')
   }
 
   if (!ci) add('ci-check', 'fail', 'ci.yml missing; CI checks unverified')
@@ -286,62 +294,26 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   if (/_authToken/.test(src.read('.npmrc') ?? '')) tokenHits.push('.npmrc')
   add('no-npm-token', tokenHits.length ? 'fail' : 'pass', tokenHits.length ? `npm token referenced in ${list(tokenHits)}` : 'no npm token references')
 
-  // 6. Publish job: protected environment, OIDC, exact tarball, no checkout or install.
   if (publishes) {
-    const release = workflows.get('release.yml')
-    const problems = []
-    // A `--dry-run` rehearsal publishes nothing, so only real publish lines count.
-    const realPublish = run => run.split('\n').some(line => /\bnpm publish\b/.test(line) && !/--dry-run\b/.test(line))
-    const publishJobs = Object.entries(release?.data?.jobs ?? {}).filter(([, job]) => steps(job).some(step => realPublish(step?.run ?? '')))
-    if (!release) problems.push('release.yml missing')
-    else if (!publishJobs.length) problems.push('no job in release.yml runs npm publish')
-    for (const [id, job] of publishJobs) {
-      const environment = typeof job.environment === 'string' ? job.environment : job.environment?.name
-      if (environment !== 'npm') problems.push(`${id}: not in the 'npm' environment`)
-      if (job.permissions?.['id-token'] !== 'write') problems.push(`${id}: missing id-token: write`)
-      for (const step of steps(job)) {
-        if (/actions\/checkout@/.test(step?.uses ?? '')) problems.push(`${id}: checks out the repository`)
-        const run = step?.run ?? ''
-        if (/\b(pnpm|npm|yarn)\s+(install|i|ci|add|run|exec|dlx)\b|\bnpx\b/.test(run)) problems.push(`${id}: installs or runs repository code`)
-        if (realPublish(run)) {
-          for (const flag of ['--provenance', '--ignore-scripts', '--access public']) if (!run.includes(flag)) problems.push(`${id}: npm publish without ${flag}`)
-        }
-      }
-    }
-    add('publish-job', problems.length ? 'fail' : 'pass', problems.length ? list([...new Set(problems)]) : "npm publish of packed tarball in 'npm' environment with OIDC")
-
     const changesets = json(src.read('.changeset/config.json'))
     if (!changesets) add('changesets', 'fail', '.changeset/config.json missing or invalid')
     else add('changesets', 'pass', `.changeset/config.json, changelog ${JSON.stringify(changesets.changelog ?? 'default')}`)
-
-    // The Changesets CLI is dependency code: the job that runs it gets a read-only token and
-    // only produces a patch; a job that runs no repository code pushes it and opens the PR.
-    const versionJobs = Object.entries(release?.data?.jobs ?? {})
-      .filter(([, job]) => steps(job).some(step => /changesets\/action@/.test(step?.uses ?? '') || /\bchangeset version\b/.test(step?.run ?? '')))
-    const writers = versionJobs.filter(([, job]) => {
-      const permissions = job?.permissions ?? release.data.permissions
-      return permissions === 'write-all' || ['contents', 'pull-requests'].some(scope => permissions?.[scope] === 'write')
-    }).map(([id]) => id)
-    if (!versionJobs.length) add('version-job', 'warn', 'no job in release.yml runs changeset version')
-    else if (writers.length) add('version-job', 'fail', `${list(writers)} runs the Changesets CLI with contents or pull-requests write; run it read-only and push its patch from a job that runs no repository code`)
-    else add('version-job', 'pass', `${list(versionJobs.map(([id]) => id))} runs the Changesets CLI read-only`)
 
     // Agents in consuming projects read the docs of the installed version through the
     // `./agent-docs` export; the README they see (the package's own) says how to point at it.
     // `files` entries are matched on directory boundaries (`dist`, `dist/`, `dist/**`); a glob or
     // negation inside an entry is beyond this check, which then reports the export as not shipped.
-    const agentProblems = []
-    for (const { dir, manifest } of publicManifests(src)) {
-      const target = manifest.exports?.['./agent-docs']?.replace?.(/^\.\//, '')
-      const covers = entry => typeof entry === 'string' && (path => target === path || target.startsWith(`${path}/`))(entry.replace(/^\.\//, '').replace(/\/(\*\*)?$/, ''))
-      if (!target || (manifest.files && !manifest.files.some(covers))) agentProblems.push(`${manifest.name}: no shipped './agent-docs' export`)
-      const readme = src.read(`${dir}README.md`) ?? ''
-      if (!/^## Agent setup$/m.test(readme) || !readme.includes(`node_modules/${manifest.name}/dist/agent/AGENTS.md`)) agentProblems.push(`${manifest.name}: ${dir}README.md has no agent setup section for it`)
+    if (src.files.some(file => file.startsWith('docs/'))) {
+      const agentProblems = []
+      for (const { dir, manifest } of publicManifests(src)) {
+        const target = manifest.exports?.['./agent-docs']?.replace?.(/^\.\//, '')
+        const covers = entry => typeof entry === 'string' && (path => target === path || target.startsWith(`${path}/`))(entry.replace(/^\.\//, '').replace(/\/(\*\*)?$/, ''))
+        if (!target || (manifest.files && !manifest.files.some(covers))) agentProblems.push(`${manifest.name}: no shipped './agent-docs' export`)
+        const readme = src.read(`${dir}README.md`) ?? ''
+        if (!/^## Agent setup$/m.test(readme) || !readme.includes(`node_modules/${manifest.name}/dist/agent/AGENTS.md`)) agentProblems.push(`${manifest.name}: ${dir}README.md has no agent setup section for it`)
+      }
+      add('agent-docs', agentProblems.length ? 'fail' : 'pass', agentProblems.length ? list(agentProblems) : "'./agent-docs' export and README agent setup")
     }
-    add('agent-docs', agentProblems.length ? 'fail' : 'pass', agentProblems.length ? list(agentProblems) : "'./agent-docs' export and README agent setup")
-
-    const preview = workflows.get('preview.yml')?.text ?? ''
-    add('preview', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pass' : 'warn', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pkg.pr.new' : 'preview.yml does not use pkg.pr.new')
   }
 
   // 7. Renovate with a release-age delay; one update bot.
@@ -355,7 +327,8 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   // 8. pnpm quarantine and build-script allowlist.
   const workspace = yaml(src.read('pnpm-workspace.yaml')) ?? {}
   const quarantineProblems = []
-  if (!String(pkg?.packageManager ?? '').startsWith('pnpm@')) quarantineProblems.push('packageManager is not pinned to pnpm')
+  if (!(Number(/^pnpm@(\d+)\./.exec(pkg?.packageManager ?? '')?.[1]) >= 11)) quarantineProblems.push('packageManager must pin pnpm 11 or later')
+  if (workspace.minimumReleaseAgeStrict !== true) quarantineProblems.push('minimumReleaseAgeStrict must be true')
   if (!(Number(workspace.minimumReleaseAge) >= 1440)) quarantineProblems.push(`minimumReleaseAge is ${workspace.minimumReleaseAge ?? 'unset'} (need >= 1440)`)
   if (workspace.dangerouslyAllowAllBuilds === true) quarantineProblems.push('dangerouslyAllowAllBuilds is true')
   const excluded = workspace.minimumReleaseAgeExclude ?? []
@@ -385,6 +358,13 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
 
   // 11. Docs deploy through Vercel Git integration with an ignore command.
   if (src.files.some(file => file.startsWith('docs/'))) {
+    const docs = json(src.read('docs/package.json'))
+    const ginko = { ...docs?.dependencies, ...docs?.devDependencies }['@lupinum/ginko-docs']
+    add('DOC-01', ginko ? 'pass' : 'fail', ginko ? 'built with Ginko Docs' : 'docs/package.json does not depend on @lupinum/ginko-docs')
+    const folders = [...new Set(src.files.filter(file => /^docs\/content\/docs\/[^/]+\//.test(file)).map(file => file.split('/')[3]))].sort().map(name => name.replace(/^\d+\./, ''))
+    const order = ['start', 'guides', 'reference', 'help']
+    const valid = folders.includes('start') && folders.includes('reference') && folders.every((name, i) => order.includes(name) && (i === 0 || order.indexOf(name) > order.indexOf(folders[i - 1])))
+    add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : `sections are ${list(folders) || 'missing'}; use start and reference, plus guides and help if needed, in that order`)
     const vercel = json(src.read('docs/vercel.json') ?? src.read('vercel.json'))
     add('vercel', vercel?.ignoreCommand ? 'pass' : 'warn', vercel?.ignoreCommand ? `ignoreCommand: ${vercel.ignoreCommand}` : 'docs exist but vercel.json has no ignoreCommand')
   }
@@ -400,11 +380,12 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
 
   if (publishes) {
     const starterFile = file => { try { return readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8') } catch { return null } }
-    const different = OWNED_FILES.filter(file => starterFile(file) !== null && !matchesStarter(src.read(file), starterFile(file)))
-    const unexplained = different.filter(file => !decisions.includes(file.split('/').at(-1)))
-    add('FILE-10', unexplained.length ? 'warn' : 'pass', unexplained.length
-      ? `missing or different from starter: ${list(unexplained)}`
-      : different.length ? `${list(different)} explained in internals/decisions.md` : 'standard-owned files match the starter')
+    for (const file of OWNED_FILES) {
+      if (file === 'scripts/agent-docs.mjs' && !src.files.some(file => file.startsWith('docs/'))) continue
+      const matches = matchesStarter(src.read(file), starterFile(file))
+      const required = ['.github/workflows/release.yml', 'scripts/release.mjs'].includes(file)
+      add('FILE-10', matches ? 'pass' : required ? 'fail' : 'warn', matches ? `${file} matches the starter` : `${file} is missing or differs from the starter; copy it from lupinum-oss`, file.split('/').at(-1))
+    }
   }
   return checklistItems(results, src, { publishes })
 }
@@ -443,7 +424,7 @@ async function registryTag(name, tag) {
 
 export async function auditSettings(src, { publishes = publicPackages(src).length > 0, api = gh, registry = registryTag, fetch: fetchUrl = globalThis.fetch, fleet = readFleet(), now = Date.now() } = {}) {
   const results = []
-  const add = (id, status, detail) => results.push({ id, status, detail })
+  const add = (id, status, detail, key) => results.push({ id, status, detail, ...(key ? { key } : {}) })
   const repo = src.repository
   if (src.truncated) add('tree', 'warn', 'git tree truncated; file checks may be incomplete')
 
@@ -454,6 +435,15 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const byType = type => rules.data.find(rule => rule.type === type)
     const problems = []
     if (!byType('pull_request')) problems.push('pull request not required')
+    if (byType('pull_request')?.parameters?.required_review_thread_resolution !== true) problems.push('resolved review threads not required')
+    if (!byType('deletion')) problems.push('branch deletion allowed')
+    const listed = api(`repos/${repo}/rulesets?targets=branch&includes_parents=true`)
+    const active = listed.ok ? listed.data.filter(rule => rule.target === 'branch' && rule.enforcement === 'active') : []
+    const applicableIds = new Set(rules.data.map(rule => rule.ruleset_id).filter(Boolean))
+    const applicable = active.filter(rule => !applicableIds.size || applicableIds.has(rule.id))
+    const details = applicable.map(rule => api(`repos/${repo}/rulesets/${rule.id}`))
+    const bypassUnreadable = !details.length || details.some(detail => !detail.ok || !Array.isArray(detail.data.bypass_actors))
+    if (details.some(detail => detail.ok && detail.data.bypass_actors?.length)) problems.push('the ruleset has bypass actors')
     const checks = byType('required_status_checks')?.parameters?.required_status_checks ?? []
     const ci = checks.find(check => check.context === 'ci')
     if (!ci) problems.push(`required checks are [${list(checks.map(check => check.context))}], need 'ci'`)
@@ -461,44 +451,26 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     if (!byType('non_fast_forward')) problems.push('force push allowed')
     if (!byType('required_linear_history')) problems.push('linear history not required')
     const methods = byType('pull_request')?.parameters?.allowed_merge_methods
-    const approvals = byType('pull_request')?.parameters?.required_approving_review_count ?? 0
-    if (src.meta.allow_auto_merge && !approvals) problems.push('auto-merge enabled with no required approvals (any token that opens a PR could merge it)')
+    if (src.meta.allow_auto_merge !== false) problems.push('auto-merge is on')
     if (problems.length) add('ruleset', 'fail', list(problems))
+    else if (bypassUnreadable) add('ruleset', 'warn', 'bypass actors unverified (needs admin access)')
     else if (methods && (methods.length !== 1 || methods[0] !== 'squash')) add('ruleset', 'warn', `merge methods: ${list(methods)} (standard: squash)`)
-    else add('ruleset', 'pass', `PR, 'ci' from GitHub Actions, no force push, linear history on ${src.branch}`)
+    else add('ruleset', 'pass', `pull request with resolved threads, 'ci' from GitHub Actions, no force push or deletion, linear history, no bypass on ${src.branch}`)
   }
 
-  // 13b. Release tags cannot be moved or deleted: an active tag ruleset without bypass actors
-  // blocks update and deletion, and its patterns cover every release tag in the repository.
+  // All tags are immutable, including future package tag names.
   if (publishes) {
     const listed = api(`repos/${repo}/rulesets?targets=tag&includes_parents=true`)
     if (!listed.ok) add('tag-ruleset', 'warn', `unverified: ${listed.error}`)
     else {
-      const blocking = listed.data.filter(ruleset => ruleset.target === 'tag' && ruleset.enforcement === 'active')
-        .map(ruleset => api(`repos/${repo}/rulesets/${ruleset.id}`)).filter(detail => detail.ok).map(detail => detail.data)
-        .filter(ruleset => ['update', 'deletion'].every(type => ruleset.rules?.some(rule => rule.type === type)))
-      // A bypass actor can still move or delete the tags, so such a ruleset protects nothing.
-      const bypassed = blocking.filter(ruleset => ruleset.bypass_actors?.length)
-        .map(ruleset => `${ruleset.name ?? ruleset.id} (${list(ruleset.bypass_actors.map(actor => `${actor.actor_type}${actor.actor_id ? ` ${actor.actor_id}` : ''}, ${actor.bypass_mode}`))})`)
-      const rulesets = blocking.filter(ruleset => !ruleset.bypass_actors?.length)
-      const toRegex = pattern => pattern === '~ALL' ? /^/ : new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*\*|\*/g, star => (star === '*' ? '[^/]*' : '.*'))}$`)
-      const matches = (patterns, ref) => (patterns ?? []).some(pattern => toRegex(pattern).test(ref))
-      const covered = ref => rulesets.some(({ conditions }) => matches(conditions?.ref_name?.include, ref) && !matches(conditions?.ref_name?.exclude, ref))
-      // Every tag that ends in a version (v1.2.0, mcp-v1.0.0, @scope/pkg@1.2.0), across all pages.
-      const tags = { ok: true, names: [] }
-      for (let page = 1; tags.ok; page++) {
-        const result = api(`repos/${repo}/tags?per_page=100&page=${page}`)
-        if (!result.ok) Object.assign(tags, { ok: false, error: result.error })
-        else tags.names.push(...result.data.map(tag => tag.name))
-        if (!result.ok || result.data.length < 100) break
-      }
-      const uncovered = tags.names.filter(tag => /\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(tag) && !covered(`refs/tags/${tag}`))
-      const patterns = rulesets.flatMap(({ conditions }) => conditions?.ref_name?.include ?? [])
-      const bypass = bypassed.length ? `; ignored because of bypass actors: ${list(bypassed)}` : ''
-      if (!rulesets.length) add('tag-ruleset', 'fail', `no active tag ruleset without bypass actors blocks update and deletion, so a release tag can be moved or deleted${bypass}`)
-      else if (uncovered.length) add('tag-ruleset', 'fail', `release tags not covered by the tag ruleset: ${list(uncovered.slice(0, 5))}${uncovered.length > 5 ? ', ...' : ''}${bypass}`)
-      else if (rulesets.some(ruleset => !Array.isArray(ruleset.bypass_actors))) add('tag-ruleset', 'warn', `${list(patterns)} block update and deletion; bypass actors unverified (needs admin access)`)
-      else add('tag-ruleset', tags.ok ? 'pass' : 'warn', `${list(patterns)} cannot be moved or deleted${tags.ok ? '' : `; tags unverified: ${tags.error}`}`)
+      const active = listed.data.filter(rule => rule.target === 'tag' && rule.enforcement === 'active')
+        .map(rule => api(`repos/${repo}/rulesets/${rule.id}`))
+      const protects = rule => rule.conditions?.ref_name?.include?.length === 1 && rule.conditions.ref_name.include[0] === '~ALL'
+        && !rule.conditions.ref_name.exclude?.length && ['update', 'deletion'].every(type => rule.rules?.some(r => r.type === type))
+      const protectedRules = active.filter(detail => detail.ok && protects(detail.data))
+      const valid = protectedRules.some(({ data }) => Array.isArray(data.bypass_actors) && data.bypass_actors.length === 0)
+      const unreadable = active.some(detail => !detail.ok) || protectedRules.some(({ data }) => !Array.isArray(data.bypass_actors))
+      add('tag-ruleset', valid ? 'pass' : unreadable ? 'warn' : 'fail', valid ? 'all tags are protected from moving and deletion' : unreadable ? 'tag ruleset unverified (needs admin access)' : 'no ruleset protects all tags; add one with include ["~ALL"], rules update and deletion, and no bypass actors')
     }
   }
 
@@ -605,9 +577,9 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
   const merges = api(`repos/${repo}`)
   if (!merges.ok) unverified('GH-03', merges)
   else {
-    const expected = { allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, delete_branch_on_merge: true, allow_auto_merge: false }
+    const expected = { allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, delete_branch_on_merge: true }
     const wrong = Object.entries(expected).filter(([key, value]) => merges.data[key] !== value).map(([key, value]) => `${key} must be ${value}`)
-    add('GH-03', wrong.length ? 'fail' : 'pass', wrong.length ? list(wrong) : 'squash only, delete merged branches, auto-merge off')
+    add('GH-03', wrong.length ? 'fail' : 'pass', wrong.length ? list(wrong) : 'squash only, delete merged branches')
   }
   for (const [path, label] of [['vulnerability-alerts', 'Dependabot alerts'], ['private-vulnerability-reporting', 'private vulnerability reporting']]) {
     const result = api(`repos/${repo}/${path}`)
@@ -661,41 +633,43 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     add('NPM-03', failed ? 'fail' : unreadable ? 'warn' : 'pass', problems.length ? list(problems) : 'newest published versions have GitHub releases')
   }
 
-  const homepage = json(src.read('package.json'))?.homepage
-  // The URL comes from the audited repository, so only public HTTPS host names are fetched.
-  const publicHttps = url => { try { const { protocol, hostname } = new URL(url); return protocol === 'https:' && hostname.includes('.') && !/^[\d.]+$|^\[|localhost$|\.local$|\.internal$/.test(hostname) } catch { return false } }
-  if (!homepage) {
-    add('DOC-01', 'warn', 'no homepage; URL check skipped')
-    add('DOC-02', 'warn', 'no homepage; agent Markdown check skipped')
-  }
-  else if (!publicHttps(homepage)) {
-    add('DOC-01', 'fail', `${homepage}: not a public https URL`)
-    add('DOC-02', 'warn', 'homepage not checked')
-  }
-  else {
-    const get = async url => {
-      try { return await fetchUrl(url, { signal: AbortSignal.timeout(15_000) }) }
-      catch (error) { return { ok: false, status: error.message } }
+  if (src.files.some(file => file.startsWith('docs/'))) {
+    const homepage = json(src.read('package.json'))?.homepage
+    // The URL comes from the audited repository, so only public HTTPS host names are fetched.
+    const publicHttps = url => { try { const { protocol, hostname } = new URL(url); return protocol === 'https:' && hostname.includes('.') && !/^[\d.]+$|^\[|localhost$|\.local$|\.internal$/.test(hostname) } catch { return false } }
+    if (!homepage) {
+      add('DOC-01', 'warn', 'no homepage; URL check skipped')
+      add('DOC-02', 'warn', 'no homepage; agent Markdown check skipped')
     }
-    const home = await get(homepage)
-    add('DOC-01', home.ok ? 'pass' : 'fail', `${homepage}: ${home.status}`)
-    const base = homepage.replace(/\/$/, '')
-    const problems = []
-    const llms = await get(`${base}/llms.txt`)
-    if (!llms.ok) problems.push(`llms.txt: ${llms.status}`)
-    const full = await get(`${base}/llms-full.txt`)
-    for (const [file, response] of [['llms.txt', llms], ['llms-full.txt', full]]) {
-      if (!response.ok) continue
-      try {
-        // Code blocks and inline code may name the placeholders, as the handbook itself does.
-        const prose = (await response.text())
-          .replace(/^(```+|~~~+)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '')
-          .replace(/(`+)(?:(?!\1)[^\n])+\1/g, '')
-        if (/<example|Component omitted|<pm-install/.test(prose)) problems.push(`${file}: contains component placeholders`)
+    else if (!publicHttps(homepage)) {
+      add('DOC-01', 'fail', `${homepage}: not a public https URL`)
+      add('DOC-02', 'warn', 'homepage not checked')
+    }
+    else {
+      const get = async url => {
+        try { return await fetchUrl(url, { signal: AbortSignal.timeout(15_000) }) }
+        catch (error) { return { ok: false, status: error.message } }
       }
-      catch (error) { problems.push(`${file}: ${error.message}`) }
+      const home = await get(homepage)
+      add('DOC-01', home.ok ? 'pass' : 'fail', `${homepage}: ${home.status}`)
+      const base = homepage.replace(/\/$/, '')
+      const problems = []
+      const llms = await get(`${base}/llms.txt`)
+      if (!llms.ok) problems.push(`llms.txt: ${llms.status}`)
+      const full = await get(`${base}/llms-full.txt`)
+      for (const [file, response] of [['llms.txt', llms], ['llms-full.txt', full]]) {
+        if (!response.ok) continue
+        try {
+          // Code blocks and inline code may name the placeholders, as the handbook itself does.
+          const prose = (await response.text())
+            .replace(/^(```+|~~~+)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '')
+            .replace(/(`+)(?:(?!\1)[^\n])+\1/g, '')
+          if (/<example|Component omitted|<pm-install/.test(prose)) problems.push(`${file}: contains component placeholders`)
+        }
+        catch (error) { problems.push(`${file}: ${error.message}`) }
+      }
+      add('DOC-02', problems.length ? 'fail' : 'pass', problems.length ? list(problems) : 'llms.txt answers; available agent Markdown has no placeholders')
     }
-    add('DOC-02', problems.length ? 'fail' : 'pass', problems.length ? list(problems) : 'llms.txt answers; available agent Markdown has no placeholders')
   }
 
   const entry = fleet.find(entry => entry.repository === repo)
@@ -707,10 +681,18 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
       typeof evidence === 'string' && evidence.trim() ? evidence : `needs ${check} evidence in fleet/libraries.json`)
   }
   const runs = api(`repos/${repo}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1`)
-  if (!runs.ok) unverified('OPS-02', runs)
+  if (!runs.ok) unverified('ci-health', runs)
   else {
     const run = runs.data.workflow_runs?.[0]
-    add('OPS-02', run?.conclusion === 'success' ? 'pass' : 'fail', run ? `latest completed ci.yml on main: ${run.conclusion}` : 'no completed ci.yml run on main')
+    add('ci-health', run?.conclusion === 'success' ? 'pass' : 'fail', run ? `latest completed ci.yml on main: ${run.conclusion}` : 'no completed ci.yml run on main')
+  }
+  if (publishes) {
+    const releases = api(`repos/${repo}/actions/workflows/release.yml/runs?branch=main&status=completed&per_page=1`)
+    if (!releases.ok) unverified('release-health', releases)
+    else {
+      const run = releases.data.workflow_runs?.[0]
+      add('release-health', run?.conclusion === 'failure' ? 'fail' : 'pass', run ? `latest completed release.yml run on main: ${run.conclusion}` : 'no completed release.yml run on main')
+    }
   }
   // The alerts API pages by cursor and rejects `page`, so read the first 100 directly.
   const alerts = api(`repos/${repo}/dependabot/alerts?state=open&severity=high,critical&per_page=100`)
@@ -723,7 +705,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const dangerous = severe.filter(alert => !ignored.has(alert.security_advisory?.ghsa_id))
     const accepted = severe.length - dangerous.length
     if (!dangerous.length && alerts.data.length >= 100) add('OPS-03', 'warn', '100 or more high or critical alerts; only the first 100 were read')
-    else add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts${accepted ? `; ${accepted} ignored in auditConfig` : ''}`)
+    else add('OPS-03', dangerous.length ? 'fail' : 'pass', `${dangerous.length} open high or critical Dependabot alerts; CI decides what blocks${accepted ? `; ${accepted} ignored in auditConfig` : ''}`)
   }
   const branches = collection(`repos/${repo}/branches`)
   if (!branches.ok || !prs.ok) unverified('OPS-04', !branches.ok ? branches : prs)
@@ -778,7 +760,7 @@ async function main(argv) {
         report(src, checklistItems([...auditFiles(src, { publishes }), ...(await auditSettings(src, { publishes, fleet }))], src, { publishes }))
       }
       catch (error) {
-        reports.push({ repository, follows: false, items: [{ id: 'FILE-01', check: 'auto', status: 'fail', detail: `repository unreadable: ${error.message}` }] })
+        reports.push({ repository, follows: false, items: [{ id: 'FILE-01', advice: false, check: 'auto', status: 'fail', detail: `[repository] repository unreadable: ${error.message}` }] })
       }
     }
   }
@@ -793,8 +775,11 @@ async function main(argv) {
         for (const { id, status, detail } of members) console.log(`  ${LABEL[status].padEnd(4)}  ${id}  ${detail}`)
       }
       if (!local) console.log(`Follows the standard: ${follows ? 'yes' : 'no'}`)
-      const open = items.filter(item => item.status !== 'pass')
-      console.log(`Open: ${open.length ? open.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
+      const open = items.filter(item => item.status !== 'pass' && !item.advice)
+      const blocking = open.filter(item => item.status !== 'warn')
+      const warnings = items.filter(item => item.status === 'warn')
+      console.log(`Open: ${blocking.length ? blocking.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
+      if (warnings.length) console.log(`Warnings: ${warnings.map(item => item.advice ? `${item.id} (advice)` : item.id).join(', ')}`)
     }
   }
   return reports.some(report => report.items.some(item => item.status === 'fail')) ? 1 : 0

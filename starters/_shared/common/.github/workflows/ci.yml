@@ -40,9 +40,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - if: matrix.task != 'audit'
         run: pnpm ${{ matrix.task }}
-      # High and critical only: a low-severity advisory deep in the docs site must not block releases.
+      # Only production advisories that reach a published package block releases.
       - if: matrix.task == 'audit'
-        run: pnpm audit --audit-level=high
+        run: node scripts/audit-deps.mjs
 
   # The one required status check for the main branch ruleset.
   ci:

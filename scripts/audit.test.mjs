@@ -7,37 +7,22 @@ import { auditFiles, auditSettings, compareVersions, localSource, checklistItems
 
 const sha = 'a'.repeat(40)
 const library = {
+  'scripts/audit-deps.mjs': readFileSync(new URL('../starters/_shared/library/scripts/audit-deps.mjs', import.meta.url), 'utf8'),
+  'docs/vercel.json': '{"ignoreCommand":"true"}',
+  'docs/package.json': JSON.stringify({ dependencies: { '@lupinum/ginko-docs': '1.0.0' } }),
+  'docs/content/docs/1.start/index.md': '# Start',
+  'docs/content/docs/2.reference/index.md': '# Reference',
   '.github/ISSUE_TEMPLATE/bug.yml': 'name: Bug report\n',
   '.github/ISSUE_TEMPLATE/config.yml': 'blank_issues_enabled: false\n',
   '.github/pull_request_template.md': '## What and why\n',
   'package.json': JSON.stringify({ name: '@lupinum/example', exports: { './agent-docs': './dist/agent/AGENTS.md' }, files: ['dist'], packageManager: 'pnpm@11.21.0', scripts: Object.fromEntries(['build', 'lint', 'typecheck', 'test', 'changeset'].map(s => [s, s]).concat([['verify', 'pnpm audit && pnpm test']])) }),
-  'pnpm-workspace.yaml': 'minimumReleaseAge: 1440\nallowBuilds:\n  esbuild: true\n',
+  'pnpm-workspace.yaml': 'minimumReleaseAge: 1440\nminimumReleaseAgeStrict: true\nallowBuilds:\n  esbuild: true\n',
   '.github/renovate.json': '{ "minimumReleaseAge": "1 day" }',
   '.changeset/config.json': '{ "changelog": ["@changesets/changelog-github", { "repo": "lupinum-dev/example" }] }',
-  '.github/workflows/ci.yml': `on: pull_request\npermissions: { contents: read }\njobs:\n  ci:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@${sha}\n      - run: pnpm verify\n`,
+  '.github/workflows/ci.yml': `on: pull_request\npermissions: { contents: read }\njobs:\n  ci:\n    if: always()\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@${sha}\n      - run: pnpm verify\n`,
   '.github/workflows/preview.yml': `on: pull_request\npermissions: { contents: read }\njobs:\n  preview:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: pnpm dlx pkg-pr-new publish\n`,
-  '.github/workflows/release.yml': `on: { push: { branches: [main] } }
-permissions: { contents: read }
-jobs:
-  version-prepare:
-    runs-on: ubuntu-24.04
-    permissions: { contents: read, pull-requests: read }
-    steps:
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm exec changeset version
-  version-pr:
-    runs-on: ubuntu-24.04
-    permissions: { contents: write, pull-requests: write }
-    steps:
-      - run: git push --force origin HEAD:refs/heads/changeset-release/main
-  publish:
-    runs-on: ubuntu-24.04
-    environment: npm
-    permissions: { id-token: write }
-    steps:
-      - uses: actions/download-artifact@${sha}
-      - run: npm publish ./package.tgz --provenance --access public --ignore-scripts --tag latest
-`,
+  '.github/workflows/release.yml': readFileSync(new URL('../starters/_shared/library/.github/workflows/release.yml', import.meta.url), 'utf8'),
+  ...Object.fromEntries(['scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs', '.github/workflows/preview.yml'].map(file => [file, readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8')])),
   ...Object.fromEntries(['LICENSE', '.github/SECURITY.md', '.github/CONTRIBUTING.md', 'AGENTS.md', '.claude/CLAUDE.md'].map(f => [f, '#'])),
   'internals/decisions.md': 'Keep release.yml, preview.yml, release.mjs, lint-changesets.mjs and agent-docs.mjs for this test fixture.',
   'README.md': '## Agent setup\n\nRead `node_modules/@lupinum/example/dist/agent/AGENTS.md`.\n',
@@ -60,15 +45,12 @@ test('a standard library passes every file check', () => {
 
 test('real attack paths fail', () => {
   const release = library['.github/workflows/release.yml']
-  assert.equal(audit({ '.github/workflows/release.yml': release.replace('environment: npm\n', '') })['FILE-04'].status, 'fail')
-  assert.equal(audit({ '.github/workflows/release.yml': release.replace('--provenance ', '') })['FILE-04'].status, 'fail')
-  assert.equal(audit({ '.github/workflows/release.yml': release.replace('      - uses: actions/download', '      - uses: actions/checkout@' + sha + '\n      - uses: actions/download') })['FILE-04'].status, 'fail')
   assert.equal(audit({ '.github/workflows/release.yml': `${release}        env: { NODE_AUTH_TOKEN: x }\n` })['FILE-04'].status, 'fail')
   assert.equal(audit({ '.github/workflows/ci.yml': library['.github/workflows/ci.yml'].replace(sha, 'v4') })['FILE-03'].status, 'fail')
   assert.equal(audit({ '.github/workflows/ci.yml': library['.github/workflows/ci.yml'].replace('contents: read', 'contents: write') })['FILE-03'].status, 'fail')
   assert.equal(audit({ 'pnpm-workspace.yaml': 'minimumReleaseAge: 60\n' })['FILE-06'].status, 'fail')
   // A job that can push, open pull requests or start ci must not run dependency or repository code.
-  const prJob = '    permissions: { contents: write, pull-requests: write }\n    steps:\n'
+  const prJob = 'on: push\npermissions: { contents: read }\njobs:\n  extra:\n    permissions: { contents: write, pull-requests: write }\n    steps:\n'
   for (const [permissions, run] of [
     ['{ contents: write, pull-requests: write, actions: write }', 'pnpm install --frozen-lockfile'],
     ['{ contents: write, pull-requests: write }', 'pnpm install --frozen-lockfile'],
@@ -76,7 +58,7 @@ test('real attack paths fail', () => {
     ['{ contents: write }', 'node scripts/release.mjs tag'],
     ['write-all', 'npx changeset version'],
   ]) {
-    assert.equal(audit({ '.github/workflows/release.yml': release.replace(prJob, `    permissions: ${permissions}\n    steps:\n      - run: ${run}\n`) })['FILE-03'].status, 'fail', `${permissions} + ${run}`)
+    assert.equal(audit({ '.github/workflows/extra.yml': prJob.replace('{ contents: write, pull-requests: write }', permissions) + `      - run: ${run}\n` })['FILE-03'].status, 'fail', `${permissions} + ${run}`)
   }
 })
 
@@ -96,9 +78,8 @@ test('agents in consuming projects can find the docs of the installed version', 
 })
 
 test('a write-capable job may not run repository files through a shell, an interpreter or make', () => {
-  const release = library['.github/workflows/release.yml']
-  const prJob = '    permissions: { contents: write, pull-requests: write }\n    steps:\n'
-  const withRun = run => release.replace(prJob, `${prJob}      - run: |\n          ${run.replaceAll('\n', '\n          ')}\n`)
+  const prJob = 'on: push\npermissions: { contents: read }\njobs:\n  extra:\n    permissions: { contents: write, pull-requests: write }\n    steps:\n'
+  const withRun = run => `${prJob}      - run: |\n          ${run.replaceAll('\n', '\n          ')}\n`
   for (const run of [
     'bash ./scripts/release.sh',
     'sh scripts/release.sh',
@@ -114,7 +95,7 @@ test('a write-capable job may not run repository files through a shell, an inter
     'if make check; then echo ok; fi',
     'out="$(./scripts/x)"',
   ]) {
-    assert.equal(audit({ '.github/workflows/release.yml': withRun(run) })['FILE-03'].status, 'fail', run)
+    assert.equal(audit({ '.github/workflows/extra.yml': withRun(run) })['FILE-03'].status, 'fail', run)
   }
   for (const run of [
     'bash -c \'echo hi\'',
@@ -123,7 +104,7 @@ test('a write-capable job may not run repository files through a shell, an inter
     'jq \'if .a then . else . end\' ./file.json',
     'echo "make sure main is green; run sh scripts yourself"',
   ]) {
-    assert.equal(audit({ '.github/workflows/release.yml': withRun(run) })['FILE-03'].status, 'pass', run)
+    assert.equal(audit({ '.github/workflows/extra.yml': withRun(run) })['FILE-03'].status, 'pass', run)
   }
   // The starter's release.yml uses only git, gh, jq and inline shell in its write jobs.
   const starter = readFileSync(new URL('../starters/_shared/library/.github/workflows/release.yml', import.meta.url), 'utf8')
@@ -131,7 +112,7 @@ test('a write-capable job may not run repository files through a shell, an inter
 })
 
 test('pnpm audit through a CI matrix counts', () => {
-  const ci = `on: pull_request\npermissions: { contents: read }\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    strategy: { matrix: { task: [lint, audit] } }\n    steps:\n      - run: pnpm \${{ matrix.task }}\n  ci:\n    needs: check\n    runs-on: ubuntu-24.04\n    steps:\n      - run: 'true'\n`
+  const ci = `on: pull_request\npermissions: { contents: read }\njobs:\n  check:\n    runs-on: ubuntu-24.04\n    strategy: { matrix: { task: [lint, audit] } }\n    steps:\n      - run: pnpm \${{ matrix.task }}\n  ci:\n    needs: check\n    if: always()\n    runs-on: ubuntu-24.04\n    steps:\n      - run: 'true'\n`
   assert.equal(audit({ '.github/workflows/ci.yml': ci })['FILE-02'].status, 'pass')
   assert.equal(audit({ '.github/workflows/ci.yml': ci.replace('lint, audit', 'lint') })['FILE-02'].status, 'fail')
 })
@@ -144,24 +125,11 @@ test('excess tooling warns', () => {
 
 test('an extra workflow named in DECISIONS.md passes', () => {
   const extra = { '.github/workflows/extra.yml': 'on: push\npermissions: {}\njobs: {}\n' }
-  assert.equal(audit({ ...extra, 'internals/decisions.md': '- D2 (2026-09-27): Keep extra.yml — it runs a slow weekly check.' })['FILE-01'].status, 'pass')
+  assert.equal(audit({ ...extra, 'internals/decisions.md': '- D2 (2026-09-27): Keep it (FILE-01: extra.yml) — it runs a slow weekly check.' })['FILE-01'].status, 'pass')
 })
 
-test('a publish dry run outside the npm environment passes; a real publish there fails', () => {
-  const release = library['.github/workflows/release.yml']
-  const pack = `  pack:\n    runs-on: ubuntu-24.04\n    permissions: { contents: read }\n    steps:\n      - uses: actions/checkout@${sha}\n      - run: npm publish ./package.tgz --dry-run --access public --ignore-scripts --tag next\n`
-  assert.equal(audit({ '.github/workflows/release.yml': `${release}${pack}` })['FILE-04'].status, 'pass')
-  assert.equal(audit({ '.github/workflows/release.yml': `${release}${pack.replace(' --dry-run', '')}` })['FILE-04'].status, 'fail')
-})
-
-test('the Changesets CLI runs without a write token', () => {
-  const release = library['.github/workflows/release.yml']
-  const readOnly = '    permissions: { contents: read, pull-requests: read }\n'
-  assert.equal(audit({ '.github/workflows/release.yml': release.replace(readOnly, '    permissions: { contents: write, pull-requests: read }\n') })['FILE-05'].status, 'fail')
-  assert.equal(audit({ '.github/workflows/release.yml': release.replace(readOnly, '    permissions: { contents: read, pull-requests: write }\n') })['FILE-05'].status, 'fail')
-  const action = release.replace('      - run: pnpm exec changeset version\n', `      - uses: changesets/action@${sha}\n`).replace(readOnly, '    permissions: { contents: write, pull-requests: write }\n')
-  assert.equal(audit({ '.github/workflows/release.yml': action })['FILE-05'].status, 'fail')
-  // changelog-github is the starter default, not a requirement.
+test('changesets config is required', () => {
+  assert.equal(audit({ '.changeset/config.json': null })['FILE-05'].status, 'fail')
   assert.equal(audit({ '.changeset/config.json': '{ "changelog": "@changesets/cli/changelog" }' })['FILE-05'].status, 'pass')
 })
 
@@ -178,13 +146,17 @@ const settings = {
   'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [],
   'repos/o/r/branches?per_page=100&page=1': [{ name: 'main', commit: { sha: 'a' } }],
   'repos/o/r/rules/branches/main': [
-    { type: 'pull_request', parameters: { required_approving_review_count: 0, allowed_merge_methods: ['squash'] } },
+    { type: 'pull_request', parameters: { required_approving_review_count: 0, required_review_thread_resolution: true, allowed_merge_methods: ['squash'] } },
     { type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'ci', integration_id: 15368 }] } },
+    { type: 'deletion' },
     { type: 'non_fast_forward' },
     { type: 'required_linear_history' },
   ],
+  'repos/o/r/rulesets?targets=branch&includes_parents=true': [{ id: 2, target: 'branch', enforcement: 'active' }],
+  'repos/o/r/rulesets/2': { bypass_actors: [] },
+  'repos/o/r/actions/workflows/release.yml/runs?branch=main&status=completed&per_page=1': { workflow_runs: [] },
   'repos/o/r/rulesets?targets=tag&includes_parents=true': [{ id: 1, target: 'tag', enforcement: 'active' }],
-  'repos/o/r/rulesets/1': { name: 'release tags', conditions: { ref_name: { include: ['refs/tags/v*'], exclude: [] } }, rules: [{ type: 'update' }, { type: 'deletion' }], bypass_actors: [] },
+  'repos/o/r/rulesets/1': { name: 'release tags', conditions: { ref_name: { include: ['~ALL'], exclude: [] } }, rules: [{ type: 'update' }, { type: 'deletion' }], bypass_actors: [] },
   'repos/o/r/tags?per_page=100&page=1': [{ name: 'v1.2.0' }],
   'repos/o/r/actions/permissions/workflow': { default_workflow_permissions: 'read', can_approve_pull_request_reviews: true },
   'repos/o/r/environments/npm': {
@@ -200,14 +172,14 @@ const settings = {
 }
 const provenance = version => ({ version, dist: { attestations: { provenance: {} } } })
 
-async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'DOC-04', 'DOC-05', 'DOC-06'].map(id => [id, '2026-10-03 checked'])) }], workspace = null, homepage = 'https://example.com' } = {}) {
+async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01'].map(id => [id, '2026-10-03 checked'])) }], workspace = null, homepage = 'https://example.com' } = {}) {
   const responses = { ...settings, ...overrides }
   const api = path => (responses[path] === undefined ? { ok: false, notFound: true, error: 'HTTP 404' } : { ok: true, data: responses[path] })
   const src = {
     repository: 'o/r',
     branch: 'main',
     meta: { allow_auto_merge: false, security_and_analysis: { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'enabled' } }, ...meta },
-    files: ['package.json'],
+    files: ['package.json', 'docs/package.json'],
     read: path => ({ 'package.json': JSON.stringify({ name: '@lupinum/example', homepage }), 'pnpm-workspace.yaml': workspace })[path] ?? null,
   }
   const results = await auditSettings(src, { publishes, api, registry, fetch, fleet, now: Date.parse('2026-10-03T00:00:00Z') })
@@ -232,19 +204,10 @@ test('release tags cannot be moved or deleted', async () => {
   assert.equal((await auditRemote({ overrides: { [list]: [] } }))['GH-02'].status, 'fail')
   assert.equal((await auditRemote({ overrides: { [list]: [{ id: 1, target: 'tag', enforcement: 'evaluate' }] } }))['GH-02'].status, 'fail')
   assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets/1': { ...ruleset, rules: [{ type: 'deletion' }] } } }))['GH-02'].status, 'fail')
-  // Every release tag prefix must be covered, such as a second package's `mcp-v*`, on any page.
-  const tags = {
-    'repos/o/r/tags?per_page=100&page=1': Array.from({ length: 100 }, (_, i) => ({ name: `v1.0.${i}` })),
-    'repos/o/r/tags?per_page=100&page=2': [{ name: 'mcp-v1.0.0' }, { name: 'docs-snapshot' }],
+  for (const include of [['refs/tags/v*'], ['~ALL', 'refs/tags/v*']]) {
+    assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets/1': { ...ruleset, conditions: { ref_name: { include, exclude: [] } } } } }))['GH-02'].status, 'fail')
   }
-  const uncovered = (await auditRemote({ overrides: tags }))['GH-02']
-  assert.equal(uncovered.status, 'fail')
-  assert.match(uncovered.detail, /mcp-v1\.0\.0/)
-  assert.doesNotMatch(uncovered.detail, /docs-snapshot/)
-  const both = { ...ruleset, conditions: { ref_name: { include: ['refs/tags/v*', 'refs/tags/mcp-v*'], exclude: [] } } }
-  assert.equal((await auditRemote({ overrides: { ...tags, 'repos/o/r/rulesets/1': both } }))['GH-02'].status, 'pass')
-  // Tags that cannot be listed are unverified, not covered.
-  assert.equal((await auditRemote({ overrides: { 'repos/o/r/tags?per_page=100&page=1': undefined } }))['GH-02'].status, 'warn')
+  assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets/1': { ...ruleset, conditions: { ref_name: { include: ['~ALL'], exclude: ['v1*'] } } } } }))['GH-02'].status, 'fail')
 })
 
 test('a tag ruleset with bypass actors does not protect release tags', async () => {
@@ -252,7 +215,7 @@ test('a tag ruleset with bypass actors does not protect release tags', async () 
   const bypass = [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }]
   const result = (await auditRemote({ overrides: { 'repos/o/r/rulesets/1': { ...ruleset, bypass_actors: bypass } } }))['GH-02']
   assert.equal(result.status, 'fail')
-  assert.match(result.detail, /release tags \(RepositoryRole 5, always\)/)
+  assert.match(result.detail, /~ALL/)
   // Without admin access GitHub omits bypass_actors, so the audit cannot pass the ruleset.
   const { bypass_actors: _, ...hidden } = ruleset
   assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets/1': hidden } }))['GH-02'].status, 'warn')
@@ -329,33 +292,49 @@ test('a file in its old root location still counts, with a warning to move it', 
 
 test('required contributing and Claude files fail when missing', () => {
   for (const file of ['.github/CONTRIBUTING.md', '.claude/CLAUDE.md']) {
-    assert.equal(audit({ [file]: null })['FILE-08'].status, 'fail', file)
+    assert.equal(audit({ [file]: null })['FILE-08'].status, 'warn', file)
   }
 })
 
-test('starter drift warns, accepts tokens and trailing whitespace, and records explanations', () => {
-  const owned = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
+test('owned release files fail on drift; supporting files warn; only named exceptions apply', () => {
+  const owned = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs', 'scripts/audit-deps.mjs']
   const files = Object.fromEntries(owned.map(file => [file, readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8').replaceAll(/\{\{[A-Z_]+\}\}/g, 'example').split('\n').map(line => `${line}  `).join('\n')]))
   assert.equal(audit({ ...files, 'internals/decisions.md': '' })['FILE-10'].status, 'pass')
-  // Renovate moves action pins in every repository; another pinned commit is not drift.
   const repinned = files['.github/workflows/release.yml'].replace(/(actions\/checkout@)[0-9a-f]{40}( # \S+)?/, `$1${'b'.repeat(40)} # v9.9.9`)
   assert.notEqual(repinned, files['.github/workflows/release.yml'])
   assert.equal(audit({ ...files, '.github/workflows/release.yml': repinned, 'internals/decisions.md': '' })['FILE-10'].status, 'pass')
   for (const file of owned) {
+    const required = ['.github/workflows/release.yml', 'scripts/release.mjs'].includes(file)
     for (const content of [null, `${files[file]}\n# drift`]) {
       const result = audit({ ...files, [file]: content, 'internals/decisions.md': '' })['FILE-10']
-      assert.equal(result.status, 'warn', file)
-      assert.match(result.detail, new RegExp(file.replaceAll('.', '\\.')))
+      assert.equal(result.status, required ? 'fail' : 'warn', file)
+      assert.ok(result.detail.includes(`[${file.split('/').at(-1)}]`))
     }
-    assert.equal(audit({ ...files, [file]: null, 'internals/decisions.md': `Keep ${file.split('/').at(-1)}.` })['FILE-10'].status, 'pass')
+    const decision = `- D1 (2026-10-06): Keep custom file (FILE-10: ${file.split('/').at(-1)}) — reason`
+    assert.equal(audit({ ...files, [file]: null, 'internals/decisions.md': decision })['FILE-10'].status, file.endsWith('/release.yml') ? 'fail' : 'pass')
+    assert.equal(audit({ ...files, [file]: null, 'internals/decisions.md': `Keep ${file.split('/').at(-1)}` })['FILE-10'].status, required ? 'fail' : 'warn')
   }
+})
+
+test('exceptions apply to a single sub-check and bare IDs require exactly one result', () => {
+  const results = [{ id: 'files', status: 'fail', detail: 'missing files' }, { id: 'lean', status: 'warn', detail: 'excess tooling' }]
+  const check = text => checklistItems(results, { files: [], read: () => text }, { publishes: true })[0]
+  assert.equal(check('- D1 (2026-10-06): Keep it (FILE-08)').status, 'warn')
+  const one = check('- D1 (2026-10-06): Keep it (FILE-08: lean)')
+  assert.equal(one.status, 'warn')
+  assert.match(one.detail, /\[files\] missing files/)
+  assert.match(one.detail, /\[lean\] - D1/)
+  assert.equal(check('- D1 (2026-10-06): Keep it (FILE-08: lean)\n- D2 (2026-10-06): Keep it (FILE-08: files)').status, 'pass')
+  const src = { files: [], read: () => '- D1 (2026-10-06): Keep it (FILE-02)' }
+  assert.equal(checklistItems([{ id: 'ci-check', status: 'fail', detail: 'missing' }], src)[0].status, 'pass')
+  assert.equal(checklistItems([{ id: 'ci-check', status: 'fail', detail: 'missing' }, { id: 'ci-audit', status: 'fail', detail: 'missing' }], src)[0].status, 'fail')
 })
 
 test('each new remote auto check detects its failing or warning case', async () => {
   const old = '2026-08-01T00:00:00Z'
   const cases = [
-    ['GH-03', 'fail', { overrides: { 'repos/o/r': { ...settings['repos/o/r'], allow_auto_merge: true } } }],
-    ['GH-08', 'fail', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [] } }],
+    ['GH-03', 'warn', { overrides: { 'repos/o/r': { ...settings['repos/o/r'], allow_squash_merge: false } } }],
+    ['GH-08', 'warn', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [] } }],
     ['GH-08', 'warn', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [{ title: 'Dependency Dashboard', updated_at: old }] } }],
     ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [] } }],
     ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'v11.2.0' }] } }],
@@ -373,7 +352,7 @@ test('each new remote auto check detects its failing or warning case', async () 
     ['DOC-02', 'fail', { fetch: async url => ({ ok: true, status: 200, text: async () => url.endsWith('/llms-full.txt') ? '```md\ncode\n```\n\n<example name="x" />\n' : '# Docs' }) }],
     ['OPS-01', 'fail', { fleet: [] }],
     ['OPS-02', 'fail', { overrides: { 'repos/o/r/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1': { workflow_runs: [{ conclusion: 'failure' }] } } }],
-    ['OPS-03', 'fail', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],
+    ['OPS-03', 'warn', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],
     ['OPS-03', 'warn', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': undefined } }],
     // An advisory ignored in pnpm's auditConfig (no fix, recorded reason) is accepted there.
     ['OPS-03', 'pass', { workspace: 'auditConfig:\n  ignoreGhsas:\n    - GHSA-aaaa-bbbb-cccc\n', overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high', ghsa_id: 'GHSA-aaaa-bbbb-cccc' } }] } }],
@@ -391,20 +370,20 @@ test('DECISIONS exceptions apply by item ID, but no-exception safety checks stil
   const decisions = '- D2 (2026-10-01): Use another updater (FILE-07) — Renovate is unavailable\n- D3 (2026-10-01): Allow an unpinned action (FILE-03) — no\n'
   const result = audit({ 'internals/decisions.md': decisions, '.github/renovate.json': null, '.github/workflows/ci.yml': library['.github/workflows/ci.yml'].replace(sha, 'v4') })
   assert.equal(result['FILE-07'].status, 'pass')
-  assert.equal(result['FILE-07'].detail, '- D2 (2026-10-01): Use another updater (FILE-07) — Renovate is unavailable')
+  assert.equal(result['FILE-07'].detail, '[renovate] - D2 (2026-10-01): Use another updater (FILE-07) — Renovate is unavailable')
   assert.equal(result['FILE-03'].status, 'fail')
   // Only a decision line that names the item in parentheses excepts it; a mention does not.
   for (const text of ['FILE-08 still applies; do not except it', '- D4 (2026-10-01): Rename FILE-08 docs', '- D4 (2026-10-01): Keep it (FILE-080)']) {
-    assert.equal(checklistItems([{ id: 'FILE-08', status: 'fail', detail: 'missing' }], { files: [], read: () => text })[0].status, 'fail', text)
+    assert.equal(checklistItems([{ id: 'FILE-08', status: 'fail', detail: 'missing' }], { files: [], read: () => text })[0].status, 'warn', text)
   }
 })
 
-test('manual and agent evidence belongs to the matching repository and item', async () => {
-  const fleet = [{ repository: 'o/r', evidence: { 'NPM-01': '2026-10-03 2FA and no tokens checked' } }, { repository: 'other/repo', evidence: { 'DOC-06': 'checked elsewhere' } }]
+test('manual evidence belongs to the matching repository and item', async () => {
+  const fleet = [{ repository: 'o/r', evidence: { 'NPM-01': '2026-10-03 2FA and no tokens checked' } }, { repository: 'other/repo', evidence: { 'NPM-01': 'checked elsewhere' } }]
   const result = await auditRemote({ fleet })
-  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', status: 'pass', check: 'manual', detail: '2026-10-03 2FA and no tokens checked' })
-  assert.equal(result['DOC-06'].status, 'open')
-  assert.equal(result['DOC-06'].check, 'agent')
+  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', advice: false, status: 'pass', check: 'manual', detail: '2026-10-03 2FA and no tokens checked' })
+  assert.equal((await auditRemote({ fleet: [fleet[1]] }))['NPM-01'].status, 'open')
+  assert.equal(result['DOC-05'], undefined) // agent-checked advice; the audit does not report it
 })
 
 test('a repository follows the standard when nothing fails or is open; warnings do not count', () => {
@@ -418,5 +397,82 @@ test('a repository follows the standard when nothing fails or is open; warnings 
 test('repositories publishing nothing omit every library-only item', async () => {
   const fileItems = Object.values(audit({ 'package.json': JSON.stringify({ private: true, scripts: { build: 'build', verify: 'pnpm audit' }, packageManager: 'pnpm@11.21.0' }) }))
   const remoteItems = Object.values(await auditRemote({ publishes: false }))
-  assert.deepEqual([...fileItems, ...remoteItems].filter(item => ['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'DOC-03', 'DOC-04', 'DOC-05', 'DOC-06'].includes(item.id) || item.id.startsWith('NPM-')), [])
+  assert.deepEqual([...fileItems, ...remoteItems].filter(item => ['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'DOC-03', 'DOC-04', 'DOC-05'].includes(item.id) || item.id.startsWith('NPM-')), [])
+})
+
+test('advice never fails and each JSON item identifies advice', () => {
+  const items = checklistItems([{ id: 'renovate', status: 'fail', detail: 'missing' }, { id: 'ci-check', status: 'fail', detail: 'missing' }], { files: [], read: () => null }, { publishes: true })
+  assert.equal(items[0].advice, false)
+  assert.equal(items[1].advice, true)
+  assert.equal(items[1].status, 'warn')
+})
+
+test('docs checks apply only when docs files exist', () => {
+  const result = audit({ 'docs/vercel.json': null, 'docs/package.json': null, 'docs/content/docs/1.start/index.md': null, 'docs/content/docs/2.reference/index.md': null, 'scripts/agent-docs.mjs': null })
+  for (const id of ['DOC-01', 'DOC-02', 'DOC-03', 'DOC-04']) assert.equal(result[id], undefined)
+  assert.equal(audit({ 'docs/package.json': '{}' })['DOC-01'].status, 'fail')
+})
+
+test('docs sections include start and reference in the standard order', () => {
+  for (const overrides of [
+    { 'docs/content/docs/2.reference/index.md': null },
+    { 'docs/content/docs/3.other/index.md': '# Other' },
+    { 'docs/content/docs/1.start/index.md': null, 'docs/content/docs/3.start/index.md': '# Start' },
+  ]) assert.equal(audit(overrides)['DOC-04'].status, 'warn')
+  assert.equal(audit()['DOC-04'].status, 'pass')
+})
+
+test('pnpm quarantine requires version 11 and strict age enforcement', () => {
+  const pkg = JSON.parse(library['package.json'])
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, packageManager: 'pnpm@10.0.0' }) })['FILE-06'].status, 'fail')
+  assert.equal(audit({ 'pnpm-workspace.yaml': library['pnpm-workspace.yaml'].replace('minimumReleaseAgeStrict: true', 'minimumReleaseAgeStrict: false') })['FILE-06'].status, 'fail')
+})
+
+test('required ci job always waits for every other job', () => {
+  const ci = library['.github/workflows/ci.yml']
+  const more = `${ci}  other:\n    steps: []\n`
+  assert.equal(audit({ '.github/workflows/ci.yml': more.replace('    if: always()', '    needs: other') })['FILE-02'].status, 'fail')
+  assert.equal(audit({ '.github/workflows/ci.yml': more })['FILE-02'].status, 'fail')
+  assert.equal(audit({ '.github/workflows/ci.yml': more.replace('    if: always()', '    needs: other\n    if: always()') })['FILE-02'].status, 'pass')
+  // A single job named ci runs every check itself, as in nuxt-photo.
+  const single = 'name: ci\non: [pull_request]\npermissions: {}\njobs:\n  ci:\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n    steps:\n      - run: pnpm verify\n'
+  assert.equal(audit({ '.github/workflows/ci.yml': single })['FILE-02'].status, 'pass')
+})
+
+test('main protection requires deletion, resolved reviews, no bypass and auto-merge off', async () => {
+  const path = 'repos/o/r/rules/branches/main'
+  const rules = settings[path]
+  for (const type of ['deletion', 'non_fast_forward', 'pull_request']) {
+    assert.equal((await auditRemote({ overrides: { [path]: rules.filter(rule => rule.type !== type) } }))['GH-01'].status, 'fail')
+  }
+  assert.equal((await auditRemote({ overrides: { [path]: rules.map(rule => rule.type === 'pull_request' ? { ...rule, parameters: { ...rule.parameters, required_review_thread_resolution: false } } : rule) } }))['GH-01'].status, 'fail')
+  assert.equal((await auditRemote({ meta: { allow_auto_merge: true }, overrides: { [path]: rules.map(rule => rule.type === 'pull_request' ? { ...rule, parameters: { ...rule.parameters, required_approving_review_count: 1 } } : rule) } }))['GH-01'].status, 'fail')
+  assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets?targets=branch&includes_parents=true': [{ id: 2, target: 'branch', enforcement: 'active' }], 'repos/o/r/rulesets/2': { bypass_actors: [{ actor_id: 1 }] } } }))['GH-01'].status, 'fail')
+  // Without admin access GitHub omits bypass_actors: unverified, not failed.
+  assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets?targets=branch&includes_parents=true': [{ id: 2, target: 'branch', enforcement: 'active' }], 'repos/o/r/rulesets/2': {} } }))['GH-01'].status, 'warn')
+})
+
+test('release failure affects health only in publishing repositories', async () => {
+  const path = 'repos/o/r/actions/workflows/release.yml/runs?branch=main&status=completed&per_page=1'
+  assert.equal((await auditRemote({ overrides: { [path]: { workflow_runs: [{ conclusion: 'failure' }] } } }))['OPS-02'].status, 'fail')
+  for (const conclusion of ['cancelled', 'skipped', 'success']) assert.equal((await auditRemote({ overrides: { [path]: { workflow_runs: [{ conclusion }] } } }))['OPS-02'].status, 'pass')
+  assert.equal((await auditRemote({ overrides: { [path]: { workflow_runs: [] } } }))['OPS-02'].status, 'pass')
+  assert.equal((await auditRemote({ publishes: false, overrides: { [path]: { workflow_runs: [{ conclusion: 'failure' }] } } }))['OPS-02'].status, 'pass')
+})
+
+test('CI accepts the production advisory helper directly or through a script', () => {
+  const ci = library['.github/workflows/ci.yml']
+  assert.equal(audit({ '.github/workflows/ci.yml': ci.replace('pnpm verify', 'node scripts/audit-deps.mjs') })['FILE-02'].status, 'pass')
+  const pkg = JSON.parse(library['package.json'])
+  assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, scripts: { ...pkg.scripts, verify: 'node scripts/audit-deps.mjs' } }) })['FILE-02'].status, 'pass')
+})
+
+test('named exceptions survive merging file and remote checks without hiding other failures', () => {
+  const src = { files: ['docs/package.json'], read: () => '- D1 (2026-10-06): Keep custom deployment (DOC-01: vercel)' }
+  const files = checklistItems([{ id: 'vercel', status: 'warn', detail: 'custom' }, { id: 'DOC-01', status: 'pass', detail: 'ginko' }], src)
+  const remote = checklistItems([{ id: 'DOC-01', status: 'fail', detail: 'HTTP 503' }], src)
+  const merged = checklistItems([...files, ...remote], src)[0]
+  assert.equal(merged.status, 'fail')
+  assert.match(merged.detail, /\[vercel\] - D1 .*; HTTP 503$/)
+  assert.doesNotMatch(merged.detail, /\[vercel\] \[vercel\]/)
 })

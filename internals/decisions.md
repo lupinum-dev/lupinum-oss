@@ -2,6 +2,32 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D12 (2026-10-06): The sweet spot: must and advice, optional docs, advisories that reach users.** — A fleet
+  check found all 14 libraries at "no", mostly for items that guard nothing, while the audit passed things it did
+  not check. So:
+  - Only must items (security and releases) decide "follows the standard". Advice (layout, templates, Renovate
+    dashboard, branch and PR hygiene, docs structure, Dependabot alerts) can only warn, because a light that is
+    always red gets ignored.
+  - A docs site is optional. A small library is better served by its README and doc comments than by a site nobody
+    keeps current (five docs domains did not answer). A library with a site builds it with Ginko Docs and follows
+    the docs items. DOC-06 ("an agent solved five tasks") is gone as a recorded item: the evidence went stale
+    without anyone noticing. Testing docs stays a practice on Write library docs.
+  - CI blocks only high or critical advisories reached through a published package's production dependencies
+    (`scripts/audit-deps.mjs`). The docs site and dev tools never reach users; an advisory there turned `main` red
+    in libraries that could not fix it. OPS-03 (Dependabot alerts) becomes advice.
+  - `release.yml` must match the starter, with no exception. The audit used to read workflows with heuristics and
+    passed a custom `release.yml` that failed on every push; identical files keep publishing safe by construction.
+    Behavior a library needs goes into `scripts/release.mjs` with an exception.
+  - Exceptions name one check, `(FILE-08: lean)`, not a whole item: one line for the tooling budget also hid a
+    missing `SECURITY.md`.
+  - The tag ruleset covers all tags. A scoped pattern such as `refs/tags/@**` does not match the `/` in
+    `@scope/name@1.0.0` under GitHub's matching rules.
+  - Fixed in the starter: leaving a prerelease opened no Version packages PR; the release summary compared against
+    any reachable tag instead of the one npm has. The audit now also checks pnpm 11, strict quarantine, the `ci` job
+    wiring, the full `main` ruleset and the last `release` run.
+  Considered and not done: a shared reusable release workflow (whether npm trusted publishing accepts a publish from
+  a called workflow is unverified), and an expiry date for evidence (more upkeep, not less).
+
 - **D11 (2026-10-06): One repository layout for every library.** — A root with 25 files reads as unmaintained
   before anyone opens one, and every library had a different set. The root now holds only `README.md`, `LICENSE`,
   `AGENTS.md`, the workspace manifests and configuration that tools read from the root. GitHub reads
@@ -81,7 +107,7 @@ Newest first. Format: `Dn (date): decision — why`.
   branches and start `ci` could get its own pull request green and merged. Starting `ci` on the Version packages
   PR therefore happens in a separate job that installs nothing. CI audits at `--audit-level=high`: a
   low-severity advisory in the docs site must not block every pull request and release.
-- **D3 (2026-09-27): Keep `starter-smoke.yml` as a separate, non-required workflow.** — It installs and
+- **D3 (2026-09-27): Keep `starter-smoke.yml` as a separate, non-required workflow (FILE-01: starter-smoke.yml).** — It installs and
   builds three generated repositories (slow, network-heavy) and runs weekly to catch upstream breakage.
   Inside the required `ci` check, a new upstream advisory in a generated repository would block every
   unrelated pull request here. It runs on changes to `starters/` and once a week.
