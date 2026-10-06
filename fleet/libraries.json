@@ -22,7 +22,9 @@
     },
     {
       "repository": "lupinum-dev/nuxt-email",
-      "evidence": {}
+      "evidence": {
+        "NPM-01": "2026-10-06 — trusted publisher release.yml (environment npm, publish); 2FA required, tokens disallowed"
+      }
     },
     {
       "repository": "lupinum-dev/nuxt-pdf",
@@ -30,7 +32,9 @@
     },
     {
       "repository": "lupinum-dev/nuxt-photo",
-      "evidence": {}
+      "evidence": {
+        "NPM-01": "2026-10-06 — trusted publisher release.yml (environment npm, publish); 2FA required, tokens disallowed"
+      }
     },
     {
       "repository": "lupinum-dev/nuxt-tour",
@@ -38,7 +42,9 @@
     },
     {
       "repository": "lupinum-dev/website-config",
-      "evidence": {}
+      "evidence": {
+        "NPM-01": "2026-10-06 — trusted publisher release.yml (environment npm, publish); 2FA required, tokens disallowed"
+      }
     },
     {
       "repository": "lupinum-dev/ginko-editor",
