@@ -361,7 +361,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   const requiredFiles = ['README.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', 'CLAUDE.md', 'DECISIONS.md']
   const missingFiles = requiredFiles.filter(file => !src.files.includes(file))
   add('files', missingFiles.length ? 'fail' : 'pass', missingFiles.length ? `missing ${list(missingFiles)}` : list(requiredFiles))
-  // Issue forms make reports complete enough for an agent to reproduce and triage.
+  // Short issue forms and a PR template give reporters and agents a common starting point.
   if (publishes) {
     const templates = ['.github/ISSUE_TEMPLATE/bug.yml', '.github/ISSUE_TEMPLATE/config.yml', '.github/pull_request_template.md'].filter(file => !src.files.includes(file))
     if (templates.length) add('files', 'warn', `missing ${list(templates)} (copy them from the starter)`)
