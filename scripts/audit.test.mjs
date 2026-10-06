@@ -132,8 +132,11 @@ test('an exception on a continuation line of a decision counts', () => {
   const extra = { '.github/workflows/extra.yml': 'on: push\npermissions: {}\njobs: {}\n' }
   const wrapped = '- **D2 (2026-09-27): Keep a weekly check.**\n  It runs slowly (FILE-01: extra.yml).\n\nA paragraph (FILE-01: other.yml).\n'
   assert.equal(audit({ ...extra, 'internals/decisions.md': wrapped })['FILE-01'].status, 'pass')
-  const unrelated = '- D2 (2026-09-27): Keep a weekly check.\n\nA paragraph (FILE-01: extra.yml).\n'
-  assert.equal(audit({ ...extra, 'internals/decisions.md': unrelated })['FILE-01'].status, 'warn')
+  for (const unrelated of [
+    '- D2 (2026-09-27): Keep a weekly check.\n\nA paragraph (FILE-01: extra.yml).\n',
+    '- D2 (2026-09-27): Keep a weekly check.\n## Notes\n  An example (FILE-01: extra.yml).\n',
+    '## Notes\n  An example (FILE-01: extra.yml).\n',
+  ]) assert.equal(audit({ ...extra, 'internals/decisions.md': unrelated })['FILE-01'].status, 'warn')
 })
 
 test('changesets config is required', () => {

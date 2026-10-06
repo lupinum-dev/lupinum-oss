@@ -197,13 +197,16 @@ const OLD_LOCATIONS = { '.github/CONTRIBUTING.md': 'CONTRIBUTING.md', '.github/S
 // One entry per decision: its `Dn` line plus the indented lines that continue it.
 export function decisionEntries(text) {
   const entries = []
+  let inDecision = false
   for (const line of text.split('\n')) {
-    if (/^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line)) entries.push(line)
-    else if (entries.length && /^\s+\S/.test(line)) entries[entries.length - 1] += ` ${line.trim()}`
-    else if (!line.trim()) continue
-    else entries.push(null) // a heading or paragraph ends the entry before it
+    if (/^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line)) {
+      entries.push(line)
+      inDecision = true
+    }
+    else if (inDecision && /^\s+[^\s#]/.test(line)) entries[entries.length - 1] += ` ${line.trim()}`
+    else if (line.trim()) inDecision = false // a heading or paragraph ends the entry before it
   }
-  return entries.filter(Boolean)
+  return entries
 }
 
 export const decisionsText = src => src.read(DECISIONS_FILE) ?? src.read('DECISIONS.md') ?? ''
