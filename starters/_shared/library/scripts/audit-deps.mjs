@@ -1,4 +1,5 @@
-// Only production dependencies that reach a public workspace package block CI.
+// Dependency audit for CI: a high or critical advisory blocks only when users would install it,
+// through the production dependencies of a published package. Everything else is a warning.
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import { relative, resolve, sep } from 'node:path'
@@ -24,7 +25,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const audited = run(['audit', '--prod', '--json']) // findings make pnpm exit nonzero
   const findings = classifyAdvisories(JSON.parse(audited.stdout), importers)
   for (const finding of findings) {
-    console.log(`${finding.blocks ? '::error::' : '::warning::'}${finding.severity}: ${finding.title} ${finding.url ?? ''}`)
+    const where = finding.blocks ? 'users install it with a published package' : 'not installed by users of a published package'
+    console.log(`${finding.blocks ? '::error::' : '::warning::'}${finding.module_name}: ${finding.title} (${finding.severity}; ${where}) ${finding.url ?? ''}`.trim())
   }
-  process.exitCode = findings.some(finding => finding.blocks) ? 1 : 0
+  const blocking = findings.filter(finding => finding.blocks).length
+  console.log(blocking ? `${blocking} advisories block. Update the package or see https://oss.lupinum.com/docs/dependencies#audit` : `No blocking advisories (${findings.length} warnings).`)
+  process.exitCode = blocking ? 1 : 0
 }

@@ -107,7 +107,7 @@ Newest first. Format: `Dn (date): decision — why`.
   branches and start `ci` could get its own pull request green and merged. Starting `ci` on the Version packages
   PR therefore happens in a separate job that installs nothing. CI audits at `--audit-level=high`: a
   low-severity advisory in the docs site must not block every pull request and release.
-- **D3 (2026-09-27): Keep `starter-smoke.yml` as a separate, non-required workflow.** — It installs and
+- **D3 (2026-09-27): Keep `starter-smoke.yml` as a separate, non-required workflow (FILE-01: starter-smoke.yml).** — It installs and
   builds three generated repositories (slow, network-heavy) and runs weekly to catch upstream breakage.
   Inside the required `ci` check, a new upstream advisory in a generated repository would block every
   unrelated pull request here. It runs on changes to `starters/` and once a week.

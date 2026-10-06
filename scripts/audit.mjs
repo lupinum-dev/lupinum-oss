@@ -7,7 +7,7 @@
 //   node scripts/audit.mjs --local <dir>     files in a local checkout only
 //   add --json for machine-readable output
 //
-// A repository follows when no applicable requirement fails or needs evidence. Exit code 1 means at
+// A repository follows the standard when no must item fails or lacks evidence; advice only warns. Exit code 1 means at
 // least one FAIL. WARN marks excess tooling or something the audit could not read; read the
 // detail before acting on it.
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -163,7 +163,8 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
     const forbidden = NO_EXCEPTION.has(id) || (id === 'FILE-10' && key === 'release.yml')
     const excepted = exception && !forbidden && ['fail', 'warn'].includes(result.status)
     const status = excepted ? 'pass' : ADVICE.has(id) && result.status === 'fail' ? 'warn' : result.status
-    const detail = `[${key}] ${excepted ? exception.trim() : result.detail}`
+    const text = excepted ? exception.trim() : result.detail
+    const detail = key === id ? text : `[${key}] ${text}`
     const previous = items.get(id)
     const item = {
       id, advice: ADVICE.has(id), check: id === 'DOC-05' ? 'agent' : EVIDENCE_CHECKS[id] ?? 'auto',
@@ -219,7 +220,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   const missing = expected.filter(name => !workflows.has(name))
   const extra = [...workflows.keys()].filter(name => !expected.includes(name))
   add('workflows', missing.length ? 'fail' : 'pass', missing.length ? `missing ${list(missing)}` : list(expected))
-  for (const name of extra) add('FILE-01', 'warn', 'extra workflow; record a named exception or remove', name)
+  for (const name of extra) add('FILE-01', 'warn', `extra workflow; remove it or record why with (FILE-01: ${name})`, name)
 
   // 2. ci.yml produces the required `ci` check and runs the dependency audit.
   const ci = workflows.get('ci.yml')
@@ -229,7 +230,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const needs = typeof gate?.needs === 'string' ? [gate.needs] : gate?.needs ?? []
     const others = Object.keys(jobs).filter(id => id !== 'ci')
     const valid = gate && (gate.name ?? 'ci') === 'ci' && ['always()', '${{ always() }}'].includes(gate.if) && Array.isArray(needs) && needs.length === others.length && others.every(id => needs.includes(id))
-    add('ci-check', valid ? 'pass' : 'fail', valid ? "job 'ci' always waits for all other jobs" : "job 'ci' needs if: always() and needs every other job")
+    add('ci-check', valid ? 'pass' : 'fail', valid ? "job 'ci' waits for every other job" : "job 'ci' must have if: always() and need every other job")
     // Directly, through a matrix value (`pnpm ${{ matrix.task }}`), or through a package script CI calls.
     const commands = Object.values(ci.data?.jobs ?? {}).flatMap(job => steps(job).flatMap((step) => {
       const run = typeof step?.run === 'string' ? step.run : ''
@@ -241,7 +242,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const auditCommand = /\bpnpm audit\b|\bnode scripts\/audit-deps\.mjs\b/
     const audits = auditCommand.test(commands)
       || Object.entries(pkg?.scripts ?? {}).some(([name, command]) => auditCommand.test(command) && calls(name))
-    add('ci-audit', audits ? 'pass' : 'fail', audits ? 'pnpm audit runs in CI' : 'CI does not run pnpm audit')
+    add('ci-audit', audits ? 'pass' : 'fail', audits ? 'CI runs the dependency audit' : 'CI runs no dependency audit (node scripts/audit-deps.mjs, or pnpm audit without packages)')
   }
 
   if (!ci) add('ci-check', 'fail', 'ci.yml missing; CI checks unverified')
@@ -325,7 +326,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   // 8. pnpm quarantine and build-script allowlist.
   const workspace = yaml(src.read('pnpm-workspace.yaml')) ?? {}
   const quarantineProblems = []
-  if (!(Number(/^pnpm@(\d+)\./.exec(pkg?.packageManager ?? '')?.[1]) >= 11)) quarantineProblems.push('packageManager needs pnpm >= 11')
+  if (!(Number(/^pnpm@(\d+)\./.exec(pkg?.packageManager ?? '')?.[1]) >= 11)) quarantineProblems.push('packageManager must pin pnpm 11 or later')
   if (workspace.minimumReleaseAgeStrict !== true) quarantineProblems.push('minimumReleaseAgeStrict must be true')
   if (!(Number(workspace.minimumReleaseAge) >= 1440)) quarantineProblems.push(`minimumReleaseAge is ${workspace.minimumReleaseAge ?? 'unset'} (need >= 1440)`)
   if (workspace.dangerouslyAllowAllBuilds === true) quarantineProblems.push('dangerouslyAllowAllBuilds is true')
@@ -358,11 +359,11 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   if (src.files.some(file => file.startsWith('docs/'))) {
     const docs = json(src.read('docs/package.json'))
     const ginko = { ...docs?.dependencies, ...docs?.devDependencies }['@lupinum/ginko-docs']
-    add('DOC-01', ginko ? 'pass' : 'fail', ginko ? 'ginko-docs dependency' : 'docs/package.json needs @lupinum/ginko-docs')
+    add('DOC-01', ginko ? 'pass' : 'fail', ginko ? 'built with Ginko Docs' : 'docs/package.json does not depend on @lupinum/ginko-docs')
     const folders = [...new Set(src.files.filter(file => /^docs\/content\/docs\/[^/]+\//.test(file)).map(file => file.split('/')[3]))].sort().map(name => name.replace(/^\d+\./, ''))
     const order = ['start', 'guides', 'reference', 'help']
     const valid = folders.includes('start') && folders.includes('reference') && folders.every((name, i) => order.includes(name) && (i === 0 || order.indexOf(name) > order.indexOf(folders[i - 1])))
-    add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : 'use start, guides, reference, help in order; include start and reference')
+    add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : `sections are ${list(folders) || 'missing'}; use start and reference, plus guides and help if needed, in that order`)
     const vercel = json(src.read('docs/vercel.json') ?? src.read('vercel.json'))
     add('vercel', vercel?.ignoreCommand ? 'pass' : 'warn', vercel?.ignoreCommand ? `ignoreCommand: ${vercel.ignoreCommand}` : 'docs exist but vercel.json has no ignoreCommand')
   }
@@ -382,7 +383,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
       if (file === 'scripts/agent-docs.mjs' && !src.files.some(file => file.startsWith('docs/'))) continue
       const matches = matchesStarter(src.read(file), starterFile(file))
       const required = ['.github/workflows/release.yml', 'scripts/release.mjs'].includes(file)
-      add('FILE-10', matches ? 'pass' : required ? 'fail' : 'warn', matches ? 'matches starter' : `missing or different from starter: ${file}`, file.split('/').at(-1))
+      add('FILE-10', matches ? 'pass' : required ? 'fail' : 'warn', matches ? `${file} matches the starter` : `${file} is missing or differs from the starter; copy it from lupinum-oss`, file.split('/').at(-1))
     }
   }
   return checklistItems(results, src, { publishes })
@@ -433,14 +434,15 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     const byType = type => rules.data.find(rule => rule.type === type)
     const problems = []
     if (!byType('pull_request')) problems.push('pull request not required')
-    if (byType('pull_request')?.parameters?.required_review_thread_resolution !== true) problems.push('review threads must be resolved')
+    if (byType('pull_request')?.parameters?.required_review_thread_resolution !== true) problems.push('resolved review threads not required')
     if (!byType('deletion')) problems.push('branch deletion allowed')
     const listed = api(`repos/${repo}/rulesets?targets=branch&includes_parents=true`)
     const active = listed.ok ? listed.data.filter(rule => rule.target === 'branch' && rule.enforcement === 'active') : []
     const applicableIds = new Set(rules.data.map(rule => rule.ruleset_id).filter(Boolean))
     const applicable = active.filter(rule => !applicableIds.size || applicableIds.has(rule.id))
     const details = applicable.map(rule => api(`repos/${repo}/rulesets/${rule.id}`))
-    if (!details.length || details.some(detail => !detail.ok || !Array.isArray(detail.data.bypass_actors) || detail.data.bypass_actors.length)) problems.push('main ruleset needs empty bypass_actors (read access required)')
+    const bypassUnreadable = !details.length || details.some(detail => !detail.ok || !Array.isArray(detail.data.bypass_actors))
+    if (details.some(detail => detail.ok && detail.data.bypass_actors?.length)) problems.push('the ruleset has bypass actors')
     const checks = byType('required_status_checks')?.parameters?.required_status_checks ?? []
     const ci = checks.find(check => check.context === 'ci')
     if (!ci) problems.push(`required checks are [${list(checks.map(check => check.context))}], need 'ci'`)
@@ -448,10 +450,11 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     if (!byType('non_fast_forward')) problems.push('force push allowed')
     if (!byType('required_linear_history')) problems.push('linear history not required')
     const methods = byType('pull_request')?.parameters?.allowed_merge_methods
-    if (src.meta.allow_auto_merge !== false) problems.push('auto-merge must be off')
+    if (src.meta.allow_auto_merge !== false) problems.push('auto-merge is on')
     if (problems.length) add('ruleset', 'fail', list(problems))
+    else if (bypassUnreadable) add('ruleset', 'warn', 'bypass actors unverified (needs admin access)')
     else if (methods && (methods.length !== 1 || methods[0] !== 'squash')) add('ruleset', 'warn', `merge methods: ${list(methods)} (standard: squash)`)
-    else add('ruleset', 'pass', `PR, 'ci' from GitHub Actions, no force push, linear history on ${src.branch}`)
+    else add('ruleset', 'pass', `pull request with resolved threads, 'ci' from GitHub Actions, no force push or deletion, linear history, no bypass on ${src.branch}`)
   }
 
   // All tags are immutable, including future package tag names.
@@ -466,7 +469,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
       const protectedRules = active.filter(detail => detail.ok && protects(detail.data))
       const valid = protectedRules.some(({ data }) => Array.isArray(data.bypass_actors) && data.bypass_actors.length === 0)
       const unreadable = active.some(detail => !detail.ok) || protectedRules.some(({ data }) => !Array.isArray(data.bypass_actors))
-      add('tag-ruleset', valid ? 'pass' : unreadable ? 'warn' : 'fail', valid ? 'all tags block update and deletion without bypass' : 'set an active tag ruleset: include ["~ALL"], no exclusions, update + deletion rules, empty bypass_actors')
+      add('tag-ruleset', valid ? 'pass' : unreadable ? 'warn' : 'fail', valid ? 'all tags are protected from moving and deletion' : unreadable ? 'tag ruleset unverified (needs admin access)' : 'no ruleset protects all tags; add one with include ["~ALL"], rules update and deletion, and no bypass actors')
     }
   }
 
@@ -668,7 +671,6 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     }
   }
 
-  if (publishes) add('DOC-05', 'warn', 'agent check, see writing-docs')
   const entry = fleet.find(entry => entry.repository === repo)
   add('OPS-01', entry ? 'pass' : 'fail', entry ? 'listed in fleet/libraries.json' : 'not listed in fleet/libraries.json')
   for (const [id, check] of Object.entries(EVIDENCE_CHECKS)) {
@@ -688,7 +690,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     if (!releases.ok) unverified('release-health', releases)
     else {
       const run = releases.data.workflow_runs?.[0]
-      add('release-health', run?.conclusion === 'failure' ? 'fail' : 'pass', run ? `latest completed release.yml on main: ${run.conclusion}` : 'no completed release.yml run on main')
+      add('release-health', run?.conclusion === 'failure' ? 'fail' : 'pass', run ? `latest completed release.yml run on main: ${run.conclusion}` : 'no completed release.yml run on main')
     }
   }
   // The alerts API pages by cursor and rejects `page`, so read the first 100 directly.
@@ -771,9 +773,11 @@ async function main(argv) {
         console.log(title)
         for (const { id, status, detail } of members) console.log(`  ${LABEL[status].padEnd(4)}  ${id}  ${detail}`)
       }
-      if (!local) console.log(`Follows the standard: ${follows ? `yes (${items.filter(item => item.advice && item.status !== 'pass').length} advice)` : 'no'}`)
-      const open = items.filter(item => item.status !== 'pass').sort((a, b) => Number(a.advice) - Number(b.advice))
+      if (!local) console.log(`Follows the standard: ${follows ? 'yes' : 'no'}`)
+      const open = items.filter(item => item.status !== 'pass' && !item.advice)
+      const advice = items.filter(item => item.status !== 'pass' && item.advice)
       console.log(`Open: ${open.length ? open.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
+      if (advice.length) console.log(`Advice: ${advice.map(item => item.id).join(', ')}`)
     }
   }
   return reports.some(report => report.items.some(item => item.status === 'fail')) ? 1 : 0

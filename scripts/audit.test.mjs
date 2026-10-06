@@ -187,7 +187,7 @@ async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags =
 }
 
 test('standard settings pass', async () => {
-  assert.deepEqual(Object.values(await auditRemote()).filter(r => r.status !== 'pass' && r.id !== 'DOC-05'), [])
+  assert.deepEqual(Object.values(await auditRemote()).filter(r => r.status !== 'pass'), [])
 })
 
 test('the required ci check must come from GitHub Actions', async () => {
@@ -381,10 +381,9 @@ test('DECISIONS exceptions apply by item ID, but no-exception safety checks stil
 test('manual evidence belongs to the matching repository and item', async () => {
   const fleet = [{ repository: 'o/r', evidence: { 'NPM-01': '2026-10-03 2FA and no tokens checked' } }, { repository: 'other/repo', evidence: { 'NPM-01': 'checked elsewhere' } }]
   const result = await auditRemote({ fleet })
-  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', advice: false, status: 'pass', check: 'manual', detail: '[NPM-01] 2026-10-03 2FA and no tokens checked' })
+  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', advice: false, status: 'pass', check: 'manual', detail: '2026-10-03 2FA and no tokens checked' })
   assert.equal((await auditRemote({ fleet: [fleet[1]] }))['NPM-01'].status, 'open')
-  assert.equal(result['DOC-05'].status, 'warn')
-  assert.equal(result['DOC-05'].check, 'agent')
+  assert.equal(result['DOC-05'], undefined) // agent-checked advice; the audit does not report it
 })
 
 test('a repository follows the standard when nothing fails or is open; warnings do not count', () => {
@@ -446,6 +445,8 @@ test('main protection requires deletion, resolved reviews, no bypass and auto-me
   assert.equal((await auditRemote({ overrides: { [path]: rules.map(rule => rule.type === 'pull_request' ? { ...rule, parameters: { ...rule.parameters, required_review_thread_resolution: false } } : rule) } }))['GH-01'].status, 'fail')
   assert.equal((await auditRemote({ meta: { allow_auto_merge: true }, overrides: { [path]: rules.map(rule => rule.type === 'pull_request' ? { ...rule, parameters: { ...rule.parameters, required_approving_review_count: 1 } } : rule) } }))['GH-01'].status, 'fail')
   assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets?targets=branch&includes_parents=true': [{ id: 2, target: 'branch', enforcement: 'active' }], 'repos/o/r/rulesets/2': { bypass_actors: [{ actor_id: 1 }] } } }))['GH-01'].status, 'fail')
+  // Without admin access GitHub omits bypass_actors: unverified, not failed.
+  assert.equal((await auditRemote({ overrides: { 'repos/o/r/rulesets?targets=branch&includes_parents=true': [{ id: 2, target: 'branch', enforcement: 'active' }], 'repos/o/r/rulesets/2': {} } }))['GH-01'].status, 'warn')
 })
 
 test('release failure affects health only in publishing repositories', async () => {
@@ -469,6 +470,6 @@ test('named exceptions survive merging file and remote checks without hiding oth
   const remote = checklistItems([{ id: 'DOC-01', status: 'fail', detail: 'HTTP 503' }], src)
   const merged = checklistItems([...files, ...remote], src)[0]
   assert.equal(merged.status, 'fail')
-  assert.match(merged.detail, /\[DOC-01\] HTTP 503/)
-  assert.doesNotMatch(merged.detail, /\[DOC-01\] \[/)
+  assert.match(merged.detail, /\[vercel\] - D1 .*; HTTP 503$/)
+  assert.doesNotMatch(merged.detail, /\[vercel\] \[vercel\]/)
 })
