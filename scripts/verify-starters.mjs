@@ -64,6 +64,11 @@ try {
         if (!listing.includes('package/dist/agent/AGENTS.md')) throw new Error(`${name}: ${file} does not contain dist/agent/AGENTS.md.`)
       }
     }
+    // Version transitions need no GitHub service; pack above checks the unchanged starter config.
+    const configPath = join(output, '.changeset/config.json')
+    const config = JSON.parse(await readFile(configPath, 'utf8'))
+    config.changelog = '@changesets/cli/changelog'
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`)
     run('git', ['init'], output)
     run('git', ['add', '.'], output)
     const commit = () => run('git', ['-c', 'user.name=Starter test', '-c', 'user.email=starter@example.invalid', 'commit', '-m', 'test: record generated state'], output)
