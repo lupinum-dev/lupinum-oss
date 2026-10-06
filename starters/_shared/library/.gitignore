@@ -7,3 +7,6 @@ release
 .env*
 !.env.example
 .DS_Store
+# Claude Code keeps local settings and worktrees here; only CLAUDE.md is shared.
+.claude/*
+!.claude/CLAUDE.md

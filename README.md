@@ -40,8 +40,8 @@ To start a new library, follow [Set up a repository](https://oss.lupinum.com/doc
 
 ## Contributing
 
-`pnpm verify` runs what CI runs. See [CONTRIBUTING.md](./CONTRIBUTING.md) and [SECURITY.md](./SECURITY.md).
-Questions: [Discord](https://discord.gg/RPH6SeA36N).
+`pnpm verify` runs what CI runs. See [CONTRIBUTING.md](.github/CONTRIBUTING.md) and [SECURITY.md](.github/SECURITY.md).
+Questions: [Discord](https://discord.lupinum.com).
 
 ## License
 

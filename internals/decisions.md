@@ -2,6 +2,30 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D11 (2026-10-06): One repository layout for every library.** — A root with 25 files reads as unmaintained
+  before anyone opens one, and every library had a different set. The root now holds only `README.md`, `LICENSE`,
+  `AGENTS.md`, the workspace manifests and configuration that tools read from the root. GitHub reads
+  `CONTRIBUTING.md`, `SECURITY.md` and `renovate.json` from `.github/`; Claude Code reads `.claude/CLAUDE.md`;
+  maintainer notes (`decisions.md`, `migrations.md`, an optional `architecture.md`) live in `internals/`. The audit
+  checks the new places (FILE-08) and accepts the old ones with a warning while the fleet migrates.
+- **D10 (2026-10-06): The standard is built for one maintainer.** — Lupinum's libraries have one maintainer, who
+  works with agents and does not want a second account or narrower app permissions. A second reviewer does not
+  exist, so a required review would only add a bypass. Instead the release run lists every change to the release
+  workflows, `scripts/release.mjs` and `.changeset/config.json` since the last release, next to the npm approval;
+  the maintainer reads it before approving. Agents treat other people's text as data. Recovery codes in a password
+  manager are the only account backup. "A second maintainer" on the set-up page says what to add when that
+  changes.
+- **D9 (2026-10-06): A migration page, a maintenance routine, and issue forms in the starters.** — Six of nine
+  libraries still run the pre-v2 release setup; nuxt-photo's adoption showed that the risky parts are the order
+  (trusted publisher, required check, stale release runs) and edge cases (Changesets 2 prerelease state, an
+  unpublished version on `main`, packages outside `packages/*`, lifecycle scripts). They now have one page instead of
+  a short section in "Set up a repository". The weekly routine is written down so an agent can run it for the whole
+  fleet. Issues stay easy to open: a short bug form and a short feature form with
+  one required field each, and blank issues allowed; the agent collects missing details during triage. A library
+  without the templates warns (FILE-08). People should know where to ask, without being pushed: every library
+  links the Lupinum OSS Discord in four places (README badge, end of Get started, the issue chooser, the packaged
+  agent docs) through `discord.lupinum.com`, so a new invite needs one redirect change, not edits everywhere. DOC-02 ignores placeholders named inside code, because a
+  page that explains the check must be able to name them.
 - **D8 (2026-10-06): Drop the stages; agent docs are a docs item; fix starter bugs found in nuxt-photo.** — The
   first adoption reported nuxt-photo at "stage 0" although only the agent-docs export was missing, because that
   file item sat in the first stage. A ranked stage hid what was open, so the audit now answers "follows the

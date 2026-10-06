@@ -2,6 +2,8 @@
 
 Part of [{{TITLE}}](https://{{DOMAIN}}). {{DESCRIPTION}}
 
+Questions? Ask in the [Lupinum OSS Discord](https://discord.lupinum.com).
+
 ## Installation
 
 ```bash

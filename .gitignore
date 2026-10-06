@@ -9,3 +9,5 @@ dist/
 coverage/
 *.log
 .DS_Store
+.claude/*
+!.claude/CLAUDE.md
