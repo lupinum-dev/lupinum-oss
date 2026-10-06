@@ -200,7 +200,7 @@ const settings = {
 }
 const provenance = version => ({ version, dist: { attestations: { provenance: {} } } })
 
-async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01', 'DOC-04', 'DOC-05', 'DOC-06'].map(id => [id, '2026-10-03 checked'])) }], workspace = null, homepage = 'https://example.com' } = {}) {
+async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags = { latest: provenance('1.2.0') }, registry = async (_name, tag) => tag ? tags[tag] ?? null : { versions: { '1.2.0': {} }, time: { '1.2.0': '2026-10-01T00:00:00Z' } }, fetch = async () => ({ ok: true, status: 200, text: async () => '# Docs' }), fleet = [{ repository: 'o/r', evidence: Object.fromEntries(['NPM-01'].map(id => [id, '2026-10-03 checked'])) }], workspace = null, homepage = 'https://example.com' } = {}) {
   const responses = { ...settings, ...overrides }
   const api = path => (responses[path] === undefined ? { ok: false, notFound: true, error: 'HTTP 404' } : { ok: true, data: responses[path] })
   const src = {
@@ -215,7 +215,7 @@ async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags =
 }
 
 test('standard settings pass', async () => {
-  assert.deepEqual(Object.values(await auditRemote()).filter(r => r.status !== 'pass'), [])
+  assert.deepEqual(Object.values(await auditRemote()).filter(r => r.status !== 'pass' && r.id !== 'DOC-05'), [])
 })
 
 test('the required ci check must come from GitHub Actions', async () => {
@@ -329,7 +329,7 @@ test('a file in its old root location still counts, with a warning to move it', 
 
 test('required contributing and Claude files fail when missing', () => {
   for (const file of ['.github/CONTRIBUTING.md', '.claude/CLAUDE.md']) {
-    assert.equal(audit({ [file]: null })['FILE-08'].status, 'fail', file)
+    assert.equal(audit({ [file]: null })['FILE-08'].status, 'warn', file)
   }
 })
 
@@ -354,8 +354,8 @@ test('starter drift warns, accepts tokens and trailing whitespace, and records e
 test('each new remote auto check detects its failing or warning case', async () => {
   const old = '2026-08-01T00:00:00Z'
   const cases = [
-    ['GH-03', 'fail', { overrides: { 'repos/o/r': { ...settings['repos/o/r'], allow_auto_merge: true } } }],
-    ['GH-08', 'fail', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [] } }],
+    ['GH-03', 'warn', { overrides: { 'repos/o/r': { ...settings['repos/o/r'], allow_squash_merge: false } } }],
+    ['GH-08', 'warn', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [] } }],
     ['GH-08', 'warn', { overrides: { 'repos/o/r/issues?state=open&per_page=100&page=1': [{ title: 'Dependency Dashboard', updated_at: old }] } }],
     ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [] } }],
     ['NPM-03', 'fail', { overrides: { 'repos/o/r/releases?per_page=100&page=1': [{ tag_name: 'v11.2.0' }] } }],
@@ -373,7 +373,7 @@ test('each new remote auto check detects its failing or warning case', async () 
     ['DOC-02', 'fail', { fetch: async url => ({ ok: true, status: 200, text: async () => url.endsWith('/llms-full.txt') ? '```md\ncode\n```\n\n<example name="x" />\n' : '# Docs' }) }],
     ['OPS-01', 'fail', { fleet: [] }],
     ['OPS-02', 'fail', { overrides: { 'repos/o/r/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1': { workflow_runs: [{ conclusion: 'failure' }] } } }],
-    ['OPS-03', 'fail', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],
+    ['OPS-03', 'warn', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],
     ['OPS-03', 'warn', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': undefined } }],
     // An advisory ignored in pnpm's auditConfig (no fix, recorded reason) is accepted there.
     ['OPS-03', 'pass', { workspace: 'auditConfig:\n  ignoreGhsas:\n    - GHSA-aaaa-bbbb-cccc\n', overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high', ghsa_id: 'GHSA-aaaa-bbbb-cccc' } }] } }],
@@ -395,16 +395,17 @@ test('DECISIONS exceptions apply by item ID, but no-exception safety checks stil
   assert.equal(result['FILE-03'].status, 'fail')
   // Only a decision line that names the item in parentheses excepts it; a mention does not.
   for (const text of ['FILE-08 still applies; do not except it', '- D4 (2026-10-01): Rename FILE-08 docs', '- D4 (2026-10-01): Keep it (FILE-080)']) {
-    assert.equal(checklistItems([{ id: 'FILE-08', status: 'fail', detail: 'missing' }], { files: [], read: () => text })[0].status, 'fail', text)
+    assert.equal(checklistItems([{ id: 'FILE-08', status: 'fail', detail: 'missing' }], { files: [], read: () => text })[0].status, 'warn', text)
   }
 })
 
 test('manual and agent evidence belongs to the matching repository and item', async () => {
   const fleet = [{ repository: 'o/r', evidence: { 'NPM-01': '2026-10-03 2FA and no tokens checked' } }, { repository: 'other/repo', evidence: { 'DOC-06': 'checked elsewhere' } }]
   const result = await auditRemote({ fleet })
-  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', status: 'pass', check: 'manual', detail: '2026-10-03 2FA and no tokens checked' })
-  assert.equal(result['DOC-06'].status, 'open')
-  assert.equal(result['DOC-06'].check, 'agent')
+  assert.deepEqual(result['NPM-01'], { id: 'NPM-01', advice: false, status: 'pass', check: 'manual', detail: '2026-10-03 2FA and no tokens checked' })
+  assert.equal(result['DOC-06'], undefined)
+  assert.equal(result['DOC-05'].status, 'warn')
+  assert.equal(result['DOC-05'].check, 'agent')
 })
 
 test('a repository follows the standard when nothing fails or is open; warnings do not count', () => {
@@ -419,4 +420,11 @@ test('repositories publishing nothing omit every library-only item', async () =>
   const fileItems = Object.values(audit({ 'package.json': JSON.stringify({ private: true, scripts: { build: 'build', verify: 'pnpm audit' }, packageManager: 'pnpm@11.21.0' }) }))
   const remoteItems = Object.values(await auditRemote({ publishes: false }))
   assert.deepEqual([...fileItems, ...remoteItems].filter(item => ['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'DOC-03', 'DOC-04', 'DOC-05', 'DOC-06'].includes(item.id) || item.id.startsWith('NPM-')), [])
+})
+
+test('advice never fails and each JSON item identifies advice', () => {
+  const items = checklistItems([{ id: 'renovate', status: 'fail', detail: 'missing' }, { id: 'ci-check', status: 'fail', detail: 'missing' }], { files: [], read: () => null }, { publishes: true })
+  assert.equal(items[0].advice, false)
+  assert.equal(items[1].advice, true)
+  assert.equal(items[1].status, 'warn')
 })

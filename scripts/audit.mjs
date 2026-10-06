@@ -129,10 +129,11 @@ function publicManifests(src) {
 
 // Checklist metadata is shared by aggregation, evidence and both output formats.
 const GROUPS = { FILE: 'Files', GH: 'GitHub settings', NPM: 'npm', DOC: 'Docs', OPS: 'Maintenance' }
-const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'DOC-03', 'DOC-04', 'DOC-05', 'DOC-06'])
+const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'DOC-03', 'DOC-04', 'DOC-05'])
 const NO_EXCEPTION = new Set(['FILE-03', 'FILE-04', 'FILE-06', 'GH-01', 'GH-02', 'GH-05'])
-const EVIDENCE_CHECKS = { 'NPM-01': 'manual', 'DOC-04': 'agent', 'DOC-05': 'agent', 'DOC-06': 'agent' }
-const ITEM_IDS = Object.entries({ FILE: 10, GH: 8, NPM: 4, DOC: 6, OPS: 5 })
+const ADVICE = new Set(['FILE-07', 'FILE-08', 'FILE-09', 'GH-03', 'GH-08', 'NPM-04', 'DOC-04', 'DOC-05', 'OPS-03', 'OPS-04', 'OPS-05'])
+const EVIDENCE_CHECKS = { 'NPM-01': 'manual' }
+const ITEM_IDS = Object.entries({ FILE: 10, GH: 8, NPM: 4, DOC: 5, OPS: 5 })
   .flatMap(([prefix, count]) => Array.from({ length: count }, (_, i) => `${prefix}-${String(i + 1).padStart(2, '0')}`))
 const CHECK_ITEMS = {
   workflows: 'FILE-01', preview: 'FILE-01', 'ci-check': 'FILE-02', 'ci-audit': 'FILE-02',
@@ -154,7 +155,7 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
     if (!publishes && LIBRARY_ONLY.has(id)) continue
     const previous = items.get(id)
     items.set(id, {
-      id, check: EVIDENCE_CHECKS[id] ?? 'auto',
+      id, advice: ADVICE.has(id), check: id === 'DOC-05' ? 'agent' : EVIDENCE_CHECKS[id] ?? 'auto',
       status: previous && SEVERITY[previous.status] > SEVERITY[result.status] ? previous.status : result.status,
       detail: previous ? `${previous.detail}; ${result.detail}` : result.detail,
     })
@@ -168,6 +169,7 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
       item.detail = exception.trim()
     }
   }
+  for (const item of items.values()) if (item.advice && item.status === 'fail') item.status = 'warn'
   return [...items.values()].sort((a, b) => ITEM_IDS.indexOf(a.id) - ITEM_IDS.indexOf(b.id))
 }
 
@@ -462,7 +464,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     if (!byType('required_linear_history')) problems.push('linear history not required')
     const methods = byType('pull_request')?.parameters?.allowed_merge_methods
     const approvals = byType('pull_request')?.parameters?.required_approving_review_count ?? 0
-    if (src.meta.allow_auto_merge && !approvals) problems.push('auto-merge enabled with no required approvals (any token that opens a PR could merge it)')
+    if (src.meta.allow_auto_merge !== false) problems.push('auto-merge enabled with no required approvals (any token that opens a PR could merge it)')
     if (problems.length) add('ruleset', 'fail', list(problems))
     else if (methods && (methods.length !== 1 || methods[0] !== 'squash')) add('ruleset', 'warn', `merge methods: ${list(methods)} (standard: squash)`)
     else add('ruleset', 'pass', `PR, 'ci' from GitHub Actions, no force push, linear history on ${src.branch}`)
@@ -605,9 +607,9 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
   const merges = api(`repos/${repo}`)
   if (!merges.ok) unverified('GH-03', merges)
   else {
-    const expected = { allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, delete_branch_on_merge: true, allow_auto_merge: false }
+    const expected = { allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, delete_branch_on_merge: true }
     const wrong = Object.entries(expected).filter(([key, value]) => merges.data[key] !== value).map(([key, value]) => `${key} must be ${value}`)
-    add('GH-03', wrong.length ? 'fail' : 'pass', wrong.length ? list(wrong) : 'squash only, delete merged branches, auto-merge off')
+    add('GH-03', wrong.length ? 'fail' : 'pass', wrong.length ? list(wrong) : 'squash only, delete merged branches')
   }
   for (const [path, label] of [['vulnerability-alerts', 'Dependabot alerts'], ['private-vulnerability-reporting', 'private vulnerability reporting']]) {
     const result = api(`repos/${repo}/${path}`)
@@ -698,6 +700,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     add('DOC-02', problems.length ? 'fail' : 'pass', problems.length ? list(problems) : 'llms.txt answers; available agent Markdown has no placeholders')
   }
 
+  if (publishes) add('DOC-05', 'warn', 'agent check, see writing-docs')
   const entry = fleet.find(entry => entry.repository === repo)
   add('OPS-01', entry ? 'pass' : 'fail', entry ? 'listed in fleet/libraries.json' : 'not listed in fleet/libraries.json')
   for (const [id, check] of Object.entries(EVIDENCE_CHECKS)) {
@@ -778,7 +781,7 @@ async function main(argv) {
         report(src, checklistItems([...auditFiles(src, { publishes }), ...(await auditSettings(src, { publishes, fleet }))], src, { publishes }))
       }
       catch (error) {
-        reports.push({ repository, follows: false, items: [{ id: 'FILE-01', check: 'auto', status: 'fail', detail: `repository unreadable: ${error.message}` }] })
+        reports.push({ repository, follows: false, items: [{ id: 'FILE-01', advice: false, check: 'auto', status: 'fail', detail: `repository unreadable: ${error.message}` }] })
       }
     }
   }
@@ -792,8 +795,8 @@ async function main(argv) {
         console.log(title)
         for (const { id, status, detail } of members) console.log(`  ${LABEL[status].padEnd(4)}  ${id}  ${detail}`)
       }
-      if (!local) console.log(`Follows the standard: ${follows ? 'yes' : 'no'}`)
-      const open = items.filter(item => item.status !== 'pass')
+      if (!local) console.log(`Follows the standard: ${follows ? `yes (${items.filter(item => item.advice && item.status !== 'pass').length} advice)` : 'no'}`)
+      const open = items.filter(item => item.status !== 'pass').sort((a, b) => Number(a.advice) - Number(b.advice))
       console.log(`Open: ${open.length ? open.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
     }
   }
