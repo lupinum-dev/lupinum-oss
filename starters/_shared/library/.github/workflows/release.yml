@@ -210,12 +210,16 @@ jobs:
             fi
             tag=latest; if [[ "$version" == *-* ]]; then tag=next; fi
             published="$(jq -r --arg tag "$tag" '.[$tag] // .latest // empty' <<< "$tags")"
+            [[ -z "$published" ]] && continue
+            found=""
             for candidate in "v$published" "$name@$published"; do
-              if [[ -n "$published" ]] && git rev-parse --verify --quiet "refs/tags/$candidate" > /dev/null; then
-                baselines+="$candidate"$'\n'
-                break
-              fi
+              if git rev-parse --verify --quiet "refs/tags/$candidate" > /dev/null; then found="$candidate"; break; fi
             done
+            if [[ -z "$found" ]]; then
+              echo "::warning title=Release files not compared::$name@$published is on npm, but neither v$published nor $name@$published is a tag. Compare the release files with that release by hand."
+              exit 0
+            fi
+            baselines+="$found"$'\n'
           done
           baselines="$(sort -u <<< "$baselines" | sed '/^$/d')"
           if [[ -z "$baselines" ]]; then

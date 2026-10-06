@@ -430,10 +430,13 @@ test('pnpm quarantine requires version 11 and strict age enforcement', () => {
 
 test('required ci job always waits for every other job', () => {
   const ci = library['.github/workflows/ci.yml']
-  assert.equal(audit({ '.github/workflows/ci.yml': ci.replace('    if: always()\n', '') })['FILE-02'].status, 'fail')
   const more = `${ci}  other:\n    steps: []\n`
+  assert.equal(audit({ '.github/workflows/ci.yml': more.replace('    if: always()', '    needs: other') })['FILE-02'].status, 'fail')
   assert.equal(audit({ '.github/workflows/ci.yml': more })['FILE-02'].status, 'fail')
   assert.equal(audit({ '.github/workflows/ci.yml': more.replace('    if: always()', '    needs: other\n    if: always()') })['FILE-02'].status, 'pass')
+  // A single job named ci runs every check itself, as in nuxt-photo.
+  const single = 'name: ci\non: [pull_request]\npermissions: {}\njobs:\n  ci:\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n    steps:\n      - run: pnpm verify\n'
+  assert.equal(audit({ '.github/workflows/ci.yml': single })['FILE-02'].status, 'pass')
 })
 
 test('main protection requires deletion, resolved reviews, no bypass and auto-merge off', async () => {

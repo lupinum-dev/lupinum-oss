@@ -229,7 +229,8 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const gate = jobs.ci
     const needs = typeof gate?.needs === 'string' ? [gate.needs] : gate?.needs ?? []
     const others = Object.keys(jobs).filter(id => id !== 'ci')
-    const valid = gate && (gate.name ?? 'ci') === 'ci' && ['always()', '${{ always() }}'].includes(gate.if) && Array.isArray(needs) && needs.length === others.length && others.every(id => needs.includes(id))
+    // A single job named `ci` is the check itself; a gate job must report the result of every other job.
+    const valid = gate && (gate.name ?? 'ci') === 'ci' && (!others.length || (['always()', '${{ always() }}'].includes(gate.if) && Array.isArray(needs) && needs.length === others.length && others.every(id => needs.includes(id))))
     add('ci-check', valid ? 'pass' : 'fail', valid ? "job 'ci' waits for every other job" : "job 'ci' must have if: always() and need every other job")
     // Directly, through a matrix value (`pnpm ${{ matrix.task }}`), or through a package script CI calls.
     const commands = Object.values(ci.data?.jobs ?? {}).flatMap(job => steps(job).flatMap((step) => {
@@ -775,9 +776,10 @@ async function main(argv) {
       }
       if (!local) console.log(`Follows the standard: ${follows ? 'yes' : 'no'}`)
       const open = items.filter(item => item.status !== 'pass' && !item.advice)
-      const advice = items.filter(item => item.status !== 'pass' && item.advice)
-      console.log(`Open: ${open.length ? open.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
-      if (advice.length) console.log(`Advice: ${advice.map(item => item.id).join(', ')}`)
+      const blocking = open.filter(item => item.status !== 'warn')
+      const warnings = items.filter(item => item.status === 'warn')
+      console.log(`Open: ${blocking.length ? blocking.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
+      if (warnings.length) console.log(`Warnings: ${warnings.map(item => item.advice ? `${item.id} (advice)` : item.id).join(', ')}`)
     }
   }
   return reports.some(report => report.items.some(item => item.status === 'fail')) ? 1 : 0
