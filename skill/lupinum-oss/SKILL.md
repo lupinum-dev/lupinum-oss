@@ -14,7 +14,7 @@ skill only routes to them. Do not keep rules here.
 
 Use a `lupinum-dev/lupinum-oss` checkout (when this skill sits inside one, the
 root is two directories up; Matthias keeps it at `~/Git/0_libs/lupinum-oss`).
-Check `git remote -v`. Without a checkout, clone it into a temporary directory.
+Check `git remote -v`, and read `origin/main`: a local branch can be behind. Without a checkout, clone it into a temporary directory.
 Reading needs nothing; the audit needs `gh` and one `pnpm install` in the
 checkout.
 
@@ -24,13 +24,14 @@ Read the page that owns the task, in `docs/content/docs/`:
 | --- | --- |
 | "Does this library follow the standard?", what is still open | `2.checklist.md`, then run the audit |
 | Start a new library | `3.set-up-a-repository.md` → "Generate the repository", and `starters/` |
-| Bring an existing repository onto the standard | `3.set-up-a-repository.md` → "Adopt the standard in an existing repository" |
-| Changesets, the Version packages PR, a failed publish | `4.releasing.md` |
-| Library docs, docs for coding agents | `5.writing-docs.md` |
-| Dependency updates, the quarantine, `pnpm audit` | `6.dependencies.md` |
-| Vulnerability reports, exposed credentials | `7.security.md` |
-| Adding or removing a script, check or workflow | `8.adding-tooling.md` |
-| Anything that fails | `9.troubleshooting.md` |
+| Bring an existing repository onto the standard | `4.migrate-a-repository.md` |
+| Changesets, the Version packages PR, a failed publish | `5.releasing.md` |
+| Library docs, docs for coding agents | `6.writing-docs.md` |
+| Dependency updates, the quarantine, `pnpm audit` | `7.dependencies.md` |
+| Vulnerability reports, exposed credentials | `8.security.md` |
+| Adding or removing a script, check or workflow | `9.adding-tooling.md` |
+| Weekly maintenance, issue and pull request triage | `10.maintain-the-fleet.md` |
+| Anything that fails | `11.troubleshooting.md` |
 
 In the target repository, read `AGENTS.md` and `DECISIONS.md`. A recorded
 decision there wins for that repository; report a conflict with the handbook
@@ -43,8 +44,11 @@ instead of inventing a third rule.
   `library` for a framework-free package), generate it, fill in `AGENTS.md`,
   `DECISIONS.md` and the docs pages, and run `pnpm verify`. Finish with the
   checklist report below.
-- **Adopt.** Follow the adoption section step by step, including the order of
-  the ruleset change, the npm trusted publisher and the merge.
+- **Migrate.** Follow `4.migrate-a-repository.md` in its order, including its
+  edge cases, the ruleset change right before the merge, and the maintainer's
+  npm step.
+- **Maintain.** Follow `10.maintain-the-fleet.md` for the weekly routine and
+  issue triage.
 - **Change a library.** Follow its `AGENTS.md`. Add a changeset for every
   user-facing change. Run `pnpm verify` before you hand off.
 - **Check.** Run `pnpm audit:repos OWNER/REPO` (or

@@ -2,6 +2,14 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D9 (2026-10-06): A migration page, a maintenance routine, and issue forms in the starters.** — Six of nine
+  libraries still run the pre-v2 release setup; nuxt-photo's adoption showed that the risky parts are the order
+  (trusted publisher, required check, stale release runs) and edge cases (Changesets 2 prerelease state, an
+  unpublished version on `main`, packages outside `packages/*`, lifecycle scripts). They now have one page instead of
+  a short section in "Set up a repository". The weekly routine is written down so an agent can run it for the whole
+  fleet. Issue forms ask for version, environment, reproduction and the exact error, which an agent needs to
+  reproduce a bug; a library without them warns (FILE-08). DOC-02 ignores placeholders named inside code, because a
+  page that explains the check must be able to name them.
 - **D8 (2026-10-06): Drop the stages; agent docs are a docs item; fix starter bugs found in nuxt-photo.** — The
   first adoption reported nuxt-photo at "stage 0" although only the agent-docs export was missing, because that
   file item sat in the first stage. A ranked stage hid what was open, so the audit now answers "follows the

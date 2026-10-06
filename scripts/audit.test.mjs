@@ -7,6 +7,9 @@ import { auditFiles, auditSettings, compareVersions, localSource, checklistItems
 
 const sha = 'a'.repeat(40)
 const library = {
+  '.github/ISSUE_TEMPLATE/bug.yml': 'name: Bug report\n',
+  '.github/ISSUE_TEMPLATE/config.yml': 'blank_issues_enabled: false\n',
+  '.github/pull_request_template.md': '## What and why\n',
   'package.json': JSON.stringify({ name: '@lupinum/example', exports: { './agent-docs': './dist/agent/AGENTS.md' }, files: ['dist'], packageManager: 'pnpm@11.21.0', scripts: Object.fromEntries(['build', 'lint', 'typecheck', 'test', 'changeset'].map(s => [s, s]).concat([['verify', 'pnpm audit && pnpm test']])) }),
   'pnpm-workspace.yaml': 'minimumReleaseAge: 1440\nallowBuilds:\n  esbuild: true\n',
   'renovate.json': '{ "minimumReleaseAge": "1 day" }',
@@ -313,6 +316,10 @@ test('compareVersions follows semver precedence', () => {
   assert.equal(compareVersions('1.0.0+build', '1.0.0'), 0)
 })
 
+test('a library without issue forms or a pull request template warns', () => {
+  assert.equal(audit({ '.github/ISSUE_TEMPLATE/bug.yml': null })['FILE-08'].status, 'warn')
+})
+
 test('required contributing and Claude files fail when missing', () => {
   for (const file of ['CONTRIBUTING.md', 'CLAUDE.md']) {
     assert.equal(audit({ [file]: null })['FILE-08'].status, 'fail', file)
@@ -354,6 +361,8 @@ test('each new remote auto check detects its failing or warning case', async () 
     ['DOC-01', 'fail', { fetch: async () => ({ ok: false, status: 503 }) }],
     ['DOC-02', 'fail', { fetch: async url => ({ ok: !url.endsWith('/llms.txt'), status: url.endsWith('/llms.txt') ? 404 : 200, text: async () => '# Docs' }) }],
     ...['<example', 'Component omitted', '<pm-install'].map(placeholder => ['DOC-02', 'fail', { fetch: async url => ({ ok: true, status: 200, text: async () => url.endsWith('/llms-full.txt') ? placeholder : '# Docs' }) }]),
+    // Naming a placeholder in code is documentation, not a placeholder.
+    ['DOC-02', 'pass', { fetch: async () => ({ ok: true, status: 200, text: async () => 'Check for `<example` and:\n\n```md\n<pm-install>\n```\n' }) }],
     ['OPS-01', 'fail', { fleet: [] }],
     ['OPS-02', 'fail', { overrides: { 'repos/o/r/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1': { workflow_runs: [{ conclusion: 'failure' }] } } }],
     ['OPS-03', 'fail', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],

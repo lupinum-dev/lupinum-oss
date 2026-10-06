@@ -361,6 +361,11 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   const requiredFiles = ['README.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', 'CLAUDE.md', 'DECISIONS.md']
   const missingFiles = requiredFiles.filter(file => !src.files.includes(file))
   add('files', missingFiles.length ? 'fail' : 'pass', missingFiles.length ? `missing ${list(missingFiles)}` : list(requiredFiles))
+  // Issue forms make reports complete enough for an agent to reproduce and triage.
+  if (publishes) {
+    const templates = ['.github/ISSUE_TEMPLATE/bug.yml', '.github/ISSUE_TEMPLATE/config.yml', '.github/pull_request_template.md'].filter(file => !src.files.includes(file))
+    if (templates.length) add('files', 'warn', `missing ${list(templates)} (copy them from the starter)`)
+  }
 
   // 11. Docs deploy through Vercel Git integration with an ignore command.
   if (src.files.some(file => file.startsWith('docs/'))) {
@@ -666,7 +671,9 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     for (const [file, response] of [['llms.txt', llms], ['llms-full.txt', full]]) {
       if (!response.ok) continue
       try {
-        if (/<example|Component omitted|<pm-install/.test(await response.text())) problems.push(`${file}: contains component placeholders`)
+        // Code blocks and inline code may name the placeholders, as the handbook itself does.
+        const prose = (await response.text()).replace(/^```[\s\S]*?^```/gm, '').replace(/`[^`\n]*`/g, '')
+        if (/<example|Component omitted|<pm-install/.test(prose)) problems.push(`${file}: contains component placeholders`)
       }
       catch (error) { problems.push(`${file}: ${error.message}`) }
     }
