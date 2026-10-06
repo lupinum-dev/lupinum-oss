@@ -59,12 +59,13 @@ const dependsOn = (pkg) => {
   return Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies, ...manifest.optionalDependencies })
 }
 const ordered = []
-const visit = (pkg, seen = new Set()) => {
-  if (ordered.includes(pkg) || seen.has(pkg)) return // `seen` stops a dependency cycle
-  seen.add(pkg)
+const visit = (pkg, path = []) => {
+  if (ordered.includes(pkg)) return
+  // No publish order is safe in a cycle: whichever goes first pins a version that is not on npm yet.
+  if (path.includes(pkg)) throw new Error(`Dependency cycle: ${[...path, pkg].map(p => p.name).join(' -> ')}`)
   for (const name of dependsOn(pkg)) {
     const sibling = unpublished.find(other => other.name === name)
-    if (sibling) visit(sibling, seen)
+    if (sibling) visit(sibling, [...path, pkg])
   }
   ordered.push(pkg)
 }
@@ -73,7 +74,7 @@ unpublished.forEach(pkg => visit(pkg))
 const notes = ordered.map((pkg, index) => {
   const scratch = join(destination, `pack-${index}`)
   run('pnpm', ['pack', '--pack-destination', scratch], { cwd: pkg.path })
-  for (const file of readdirSync(scratch)) renameSync(join(scratch, file), join(destination, `${String(index + 1).padStart(2, '0')}-${file}`))
+  for (const file of readdirSync(scratch)) renameSync(join(scratch, file), join(destination, `${String(index + 1).padStart(Math.max(2, String(ordered.length).length), '0')}-${file}`))
   rmSync(scratch, { recursive: true })
   // Changesets writes `## <version>` sections into each package's CHANGELOG.md.
   const changelogPath = join(pkg.path, 'CHANGELOG.md')
