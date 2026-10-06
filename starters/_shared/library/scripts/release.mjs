@@ -4,11 +4,11 @@
 // Tags: `v<version>` when there is one public package or all of them are in one Changesets `fixed`
 // group; otherwise one `<name>@<version>` tag and GitHub release per package.
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 const command = process.argv[2]
-if (!['check', 'pack'].includes(command)) throw new Error('Usage: node scripts/release.mjs check|pack')
+if (!['check', 'pack', 'version-needed', 'baseline'].includes(command)) throw new Error('Usage: node scripts/release.mjs check|pack|version-needed|baseline')
 
 function run(program, args, options = {}) {
   const result = spawnSync(program, args, { encoding: 'utf8', ...options })
@@ -23,10 +23,36 @@ function isOnNpm({ name, version }) {
   throw new Error(`npm view ${name} failed:\n${result.stderr}`)
 }
 
+if (command === 'version-needed') {
+  const pending = readdirSync('.changeset', { withFileTypes: true }).some(file => file.isFile() && file.name.endsWith('.md') && file.name !== 'README.md')
+  const pre = existsSync('.changeset/pre.json') ? JSON.parse(readFileSync('.changeset/pre.json', 'utf8')) : null
+  console.log(pending || pre?.mode === 'exit')
+  process.exit(0)
+}
+
 // Every package in pnpm-workspace.yaml (and the root), wherever it lives.
 const packages = JSON.parse(run('pnpm', ['-r', 'ls', '--json', '--depth', '-1'])).filter(pkg => !pkg.private)
-const unpublished = packages.filter(pkg => !isOnNpm(pkg))
+const names = packages.map(pkg => pkg.name)
+const { fixed = [] } = JSON.parse(readFileSync('.changeset/config.json', 'utf8'))
+// Changesets allows globs in `fixed`, such as "@scope/*".
+const matches = (pattern, name) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`).test(name)
+const shared = names.length === 1 || fixed.some(group => names.every(name => group.some(pattern => matches(pattern, name))))
+const tag = (pkg, version) => shared ? `v${version}` : `${pkg.name}@${version}`
 
+if (command === 'baseline') {
+  const tags = new Set()
+  for (const pkg of packages) {
+    const distTag = pkg.version.includes('-') ? 'next' : 'latest'
+    const result = spawnSync('npm', ['view', `${pkg.name}@${distTag}`, 'version'], { encoding: 'utf8' })
+    if (result.status !== 0 && !/E404/.test(result.stderr)) throw new Error(`npm view ${pkg.name} failed:\n${result.stderr}`)
+    const version = result.status === 0 ? result.stdout.trim() : ''
+    if (version) tags.add(tag(pkg, version))
+  }
+  if (tags.size) console.log([...tags].join('\n'))
+  process.exit(0)
+}
+
+const unpublished = packages.filter(pkg => !isOnNpm(pkg))
 if (command === 'check') {
   const line = `publish=${unpublished.length > 0}\n`
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, line)
@@ -49,13 +75,8 @@ const notes = unpublished.map((pkg) => {
 
 const entry = (tag, version, text) => ({ tag, notes: text, prerelease: version.includes('-') })
 const { version } = packages[0]
-const names = packages.map(pkg => pkg.name)
-const { fixed = [] } = JSON.parse(readFileSync('.changeset/config.json', 'utf8'))
-// Changesets allows globs in `fixed`, such as "@scope/*".
-const matches = (pattern, name) => new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`).test(name)
-const shared = names.length === 1 || fixed.some(group => names.every(name => group.some(pattern => matches(pattern, name))))
 const releases = shared
-  ? [entry(`v${version}`, version, notes.map(n => (notes.length > 1 ? `## ${n.name}\n\n${n.body}` : n.body)).join('\n\n'))]
-  : notes.map(n => entry(`${n.name}@${n.version}`, n.version, n.body))
+  ? [entry(tag(packages[0], version), version, notes.map(n => (notes.length > 1 ? `## ${n.name}\n\n${n.body}` : n.body)).join('\n\n'))]
+  : notes.map(n => entry(tag(n, n.version), n.version, n.body))
 writeFileSync(join(destination, 'releases.json'), `${JSON.stringify(releases, null, 2)}\n`)
 console.log(releases.map(r => r.tag).join('\n'))

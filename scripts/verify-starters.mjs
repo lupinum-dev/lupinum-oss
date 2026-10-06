@@ -8,7 +8,7 @@
 //
 // Usage: node scripts/verify-starters.mjs [library] [library-monorepo] [nuxt-module]
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -64,6 +64,29 @@ try {
         if (!listing.includes('package/dist/agent/AGENTS.md')) throw new Error(`${name}: ${file} does not contain dist/agent/AGENTS.md.`)
       }
     }
+    run('git', ['init'], output)
+    run('git', ['add', '.'], output)
+    const commit = () => run('git', ['-c', 'user.name=Starter test', '-c', 'user.email=starter@example.invalid', 'commit', '-m', 'test: record generated state'], output)
+    commit()
+    run('pnpm', ['changeset', 'pre', 'enter', 'next'], output)
+    const packageFile = name === 'library-monorepo' ? 'packages/test-core/package.json' : 'package.json'
+    const manifest = JSON.parse(await readFile(join(output, packageFile), 'utf8'))
+    await writeFile(join(output, '.changeset/smoke-minor.md'), `---\n"${manifest.name}": minor\n---\n\nAdd a smoke test release.\n`)
+    const needed = () => {
+      const result = spawnSync(process.execPath, ['scripts/release.mjs', 'version-needed'], { cwd: output, encoding: 'utf8' })
+      if (result.status !== 0 || result.stdout.trim() !== 'true') throw new Error(`${name}: version-needed must be true: ${result.stderr}`)
+    }
+    needed()
+    run('pnpm', ['changeset', 'version'], output)
+    const pre = JSON.parse(await readFile(join(output, packageFile), 'utf8')).version
+    if (!/-next\.0$/.test(pre)) throw new Error(`${name}: expected next.0 prerelease, got ${pre}`)
+    run('git', ['add', '.'], output)
+    commit()
+    run('pnpm', ['changeset', 'pre', 'exit'], output)
+    needed()
+    run('pnpm', ['changeset', 'version'], output)
+    const stable = JSON.parse(await readFile(join(output, packageFile), 'utf8')).version
+    if (stable !== pre.replace(/-next\.0$/, '')) throw new Error(`${name}: expected stable version, got ${stable}`)
     console.log(`\n${name}: generated repository passes pnpm verify.`)
   }
 }
