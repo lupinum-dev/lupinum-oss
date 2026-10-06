@@ -28,7 +28,7 @@ Run `verify-starters.mjs` when you change `starters/`; the starter smoke workflo
 - Keep tooling lean: a check or script is allowed only if it guards behavior a
   user relies on or a real attack path. See `docs/content/docs/6.adding-tooling.md`.
 - A change to the standard updates the handbook, the checklist, the starters and
-  the audit together, and adds an entry to `DECISIONS.md`.
+  the audit together, and adds an entry to `internals/decisions.md`.
 - Never add `NPM_TOKEN`, a Vercel token or any other long-lived credential to a
   workflow or starter.
 - Pin GitHub Actions by full commit SHA; give each job only the permissions it needs.

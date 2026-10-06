@@ -159,7 +159,7 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
       detail: previous ? `${previous.detail}; ${result.detail}` : result.detail,
     })
   }
-  const decisions = (src.read('DECISIONS.md') ?? '').split('\n')
+  const decisions = decisionsText(src).split('\n')
   for (const item of items.values()) {
     // A decision line (`D4 (date): Keep x (FILE-01) — why`) that names the item in parentheses.
     const exception = decisions.find(line => /^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line) && line.includes(`(${item.id})`))
@@ -177,6 +177,18 @@ export const follows = items => items.every(item => ['pass', 'warn'].includes(it
 function readFleet() {
   return JSON.parse(readFileSync(new URL('../fleet/libraries.json', import.meta.url), 'utf8')).repositories
 }
+
+// The repository layout every library shares. The root holds what visitors and agents look for;
+// GitHub reads the community files from .github/; maintainer notes live in internals/.
+const DECISIONS_FILE = 'internals/decisions.md'
+const LAYOUT = [
+  ['README.md'], ['LICENSE'], ['AGENTS.md'],
+  ['.github/CONTRIBUTING.md'], ['.github/SECURITY.md'],
+  ['.claude/CLAUDE.md'], [DECISIONS_FILE],
+]
+// Locations used before the shared layout; they still count, with a warning to move them.
+const OLD_LOCATIONS = { '.github/CONTRIBUTING.md': 'CONTRIBUTING.md', '.github/SECURITY.md': 'SECURITY.md', '.claude/CLAUDE.md': 'CLAUDE.md', [DECISIONS_FILE]: 'DECISIONS.md' }
+export const decisionsText = src => src.read(DECISIONS_FILE) ?? src.read('DECISIONS.md') ?? ''
 
 const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
 // Tokens stand for a segment within one line; whitespace at line ends is immaterial, and so is
@@ -201,12 +213,12 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   const expected = publishes ? ['ci.yml', 'release.yml', 'preview.yml'] : ['ci.yml']
   const missing = expected.filter(name => !workflows.has(name))
   const extra = [...workflows.keys()].filter(name => !expected.includes(name))
-  // An extra workflow is fine when DECISIONS.md names it and says why.
-  const decisions = src.read('DECISIONS.md') ?? ''
+  // An extra workflow is fine when internals/decisions.md names it and says why.
+  const decisions = decisionsText(src)
   const unexplained = extra.filter(name => !decisions.includes(name))
   if (missing.length) add('workflows', 'fail', `missing ${list(missing)}`)
-  else if (unexplained.length) add('workflows', 'warn', `extra workflows: ${list(unexplained)} (standard is ${list(expected)}; record a reason in DECISIONS.md or remove)`)
-  else add('workflows', 'pass', `${list(expected)}${extra.length ? `; ${list(extra)} explained in DECISIONS.md` : ''}`)
+  else if (unexplained.length) add('workflows', 'warn', `extra workflows: ${list(unexplained)} (standard is ${list(expected)}; record a reason in internals/decisions.md or remove)`)
+  else add('workflows', 'pass', `${list(expected)}${extra.length ? `; ${list(extra)} explained in internals/decisions.md` : ''}`)
 
   // 2. ci.yml produces the required `ci` check and runs the dependency audit.
   const ci = workflows.get('ci.yml')
@@ -358,9 +370,13 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   add('scripts', missingScripts.length ? 'fail' : 'pass', missingScripts.length ? `missing ${list(missingScripts)}` : list(requiredScripts))
 
   // 10. Repository files.
-  const requiredFiles = ['README.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', 'CLAUDE.md', 'DECISIONS.md']
-  const missingFiles = requiredFiles.filter(file => !src.files.includes(file))
+  const requiredFiles = LAYOUT.map(([file]) => file)
+  const missingFiles = requiredFiles.filter(file => !src.files.includes(file) && !src.files.includes(OLD_LOCATIONS[file]))
+  const misplaced = requiredFiles.filter(file => !src.files.includes(file) && src.files.includes(OLD_LOCATIONS[file]))
   add('files', missingFiles.length ? 'fail' : 'pass', missingFiles.length ? `missing ${list(missingFiles)}` : list(requiredFiles))
+  if (misplaced.length) add('files', 'warn', `move ${list(misplaced.map(file => `${OLD_LOCATIONS[file]} to ${file}`))}`)
+  const renovateAtRoot = src.files.includes('renovate.json')
+  if (renovateAtRoot) add('files', 'warn', 'move renovate.json to .github/renovate.json')
   // Short issue forms and a PR template give reporters and agents a common starting point.
   if (publishes) {
     const templates = ['.github/ISSUE_TEMPLATE/bug.yml', '.github/ISSUE_TEMPLATE/config.yml', '.github/pull_request_template.md'].filter(file => !src.files.includes(file))
@@ -388,7 +404,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const unexplained = different.filter(file => !decisions.includes(file.split('/').at(-1)))
     add('FILE-10', unexplained.length ? 'warn' : 'pass', unexplained.length
       ? `missing or different from starter: ${list(unexplained)}`
-      : different.length ? `${list(different)} explained in DECISIONS.md` : 'standard-owned files match the starter')
+      : different.length ? `${list(different)} explained in internals/decisions.md` : 'standard-owned files match the starter')
   }
   return checklistItems(results, src, { publishes })
 }
@@ -672,7 +688,9 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
       if (!response.ok) continue
       try {
         // Code blocks and inline code may name the placeholders, as the handbook itself does.
-        const prose = (await response.text()).replace(/^```[\s\S]*?^```/gm, '').replace(/`[^`\n]*`/g, '')
+        const prose = (await response.text())
+          .replace(/^(```+|~~~+)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '')
+          .replace(/(`+)(?:(?!\1)[^\n])+\1/g, '')
         if (/<example|Component omitted|<pm-install/.test(prose)) problems.push(`${file}: contains component placeholders`)
       }
       catch (error) { problems.push(`${file}: ${error.message}`) }

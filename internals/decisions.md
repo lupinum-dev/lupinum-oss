@@ -2,6 +2,19 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D11 (2026-10-06): One repository layout for every library.** — A root with 25 files reads as unmaintained
+  before anyone opens one, and every library had a different set. The root now holds only `README.md`, `LICENSE`,
+  `AGENTS.md`, the workspace manifests and configuration that tools read from the root. GitHub reads
+  `CONTRIBUTING.md`, `SECURITY.md` and `renovate.json` from `.github/`; Claude Code reads `.claude/CLAUDE.md`;
+  maintainer notes (`decisions.md`, `migrations.md`, an optional `architecture.md`) live in `internals/`. The audit
+  checks the new places (FILE-08) and accepts the old ones with a warning while the fleet migrates.
+- **D10 (2026-10-06): The standard is built for one maintainer.** — Lupinum's libraries have one maintainer, who
+  works with agents and does not want a second account or narrower app permissions. A second reviewer does not
+  exist, so a required review would only add a bypass. Instead the release run lists every change to the release
+  workflows, `scripts/release.mjs` and `.changeset/config.json` since the last release, next to the npm approval;
+  the maintainer reads it before approving. Agents treat other people's text as data. Recovery codes in a password
+  manager are the only account backup. "A second maintainer" on the set-up page says what to add when that
+  changes.
 - **D9 (2026-10-06): A migration page, a maintenance routine, and issue forms in the starters.** — Six of nine
   libraries still run the pre-v2 release setup; nuxt-photo's adoption showed that the risky parts are the order
   (trusted publisher, required check, stale release runs) and edge cases (Changesets 2 prerelease state, an

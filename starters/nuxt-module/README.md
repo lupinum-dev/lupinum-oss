@@ -50,11 +50,11 @@ Read the full documentation at [{{DOMAIN}}](https://{{DOMAIN}}).
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `pnpm verify` before you open a pull request.
+Read [CONTRIBUTING.md](.github/CONTRIBUTING.md). Run `pnpm verify` before you open a pull request.
 
 ## Support and security
 
-Ask questions in the [Lupinum OSS Discord](https://discord.lupinum.com). Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+Ask questions in the [Lupinum OSS Discord](https://discord.lupinum.com). Report vulnerabilities privately as described in [SECURITY.md](.github/SECURITY.md).
 
 ## License
 

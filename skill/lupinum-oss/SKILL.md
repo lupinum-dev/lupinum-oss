@@ -14,7 +14,9 @@ skill only routes to them. Do not keep rules here.
 
 Use a `lupinum-dev/lupinum-oss` checkout (when this skill sits inside one, the
 root is two directories up; Matthias keeps it at `~/Git/0_libs/lupinum-oss`).
-Check `git remote -v`, and read `origin/main`: a local branch can be behind. Without a checkout, clone it into a temporary directory.
+Check `git remote -v`. A local branch can be behind, so read the current
+standard from `origin/main`: run `git fetch origin main --quiet`, then
+`git show origin/main:docs/content/docs/<page>.md`. Without a checkout, clone it into a temporary directory.
 Reading needs nothing; the audit needs `gh` and one `pnpm install` in the
 checkout.
 
@@ -33,7 +35,7 @@ Read the page that owns the task, in `docs/content/docs/`:
 | Weekly maintenance, issue and pull request triage | `10.maintain-the-fleet.md` |
 | Anything that fails | `11.troubleshooting.md` |
 
-In the target repository, read `AGENTS.md` and `DECISIONS.md`. A recorded
+In the target repository, read `AGENTS.md` and `internals/decisions.md`. A recorded
 decision there wins for that repository; report a conflict with the handbook
 instead of inventing a third rule.
 
@@ -42,7 +44,7 @@ instead of inventing a third rule.
 - **Start a library.** Choose the starter (`nuxt-module` for a Nuxt module,
   `library-monorepo` when a Vue package and its Nuxt module ship together,
   `library` for a framework-free package), generate it, fill in `AGENTS.md`,
-  `DECISIONS.md` and the docs pages, and run `pnpm verify`. Finish with the
+  `internals/decisions.md` and the docs pages, and run `pnpm verify`. Finish with the
   checklist report below.
 - **Migrate.** Follow `4.migrate-a-repository.md` in its order, including its
   edge cases, the ruleset change right before the merge, and the maintainer's

@@ -9,5 +9,5 @@ pnpm verify
 ```
 
 A change to the standard updates the handbook, the starters and the audit together and adds an entry to
-`DECISIONS.md`. New checks or scripts must guard behavior users rely on or a real attack path; see
+`internals/decisions.md`. New checks or scripts must guard behavior users rely on or a real attack path; see
 [Adding tooling](https://oss.lupinum.com/docs/adding-tooling).

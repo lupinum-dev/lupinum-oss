@@ -12,7 +12,7 @@ const library = {
   '.github/pull_request_template.md': '## What and why\n',
   'package.json': JSON.stringify({ name: '@lupinum/example', exports: { './agent-docs': './dist/agent/AGENTS.md' }, files: ['dist'], packageManager: 'pnpm@11.21.0', scripts: Object.fromEntries(['build', 'lint', 'typecheck', 'test', 'changeset'].map(s => [s, s]).concat([['verify', 'pnpm audit && pnpm test']])) }),
   'pnpm-workspace.yaml': 'minimumReleaseAge: 1440\nallowBuilds:\n  esbuild: true\n',
-  'renovate.json': '{ "minimumReleaseAge": "1 day" }',
+  '.github/renovate.json': '{ "minimumReleaseAge": "1 day" }',
   '.changeset/config.json': '{ "changelog": ["@changesets/changelog-github", { "repo": "lupinum-dev/example" }] }',
   '.github/workflows/ci.yml': `on: pull_request\npermissions: { contents: read }\njobs:\n  ci:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@${sha}\n      - run: pnpm verify\n`,
   '.github/workflows/preview.yml': `on: pull_request\npermissions: { contents: read }\njobs:\n  preview:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: pnpm dlx pkg-pr-new publish\n`,
@@ -38,8 +38,8 @@ jobs:
       - uses: actions/download-artifact@${sha}
       - run: npm publish ./package.tgz --provenance --access public --ignore-scripts --tag latest
 `,
-  ...Object.fromEntries(['LICENSE', 'SECURITY.md', 'CONTRIBUTING.md', 'AGENTS.md', 'CLAUDE.md'].map(f => [f, '#'])),
-  'DECISIONS.md': 'Keep release.yml, preview.yml, release.mjs, lint-changesets.mjs and agent-docs.mjs for this test fixture.',
+  ...Object.fromEntries(['LICENSE', '.github/SECURITY.md', '.github/CONTRIBUTING.md', 'AGENTS.md', '.claude/CLAUDE.md'].map(f => [f, '#'])),
+  'internals/decisions.md': 'Keep release.yml, preview.yml, release.mjs, lint-changesets.mjs and agent-docs.mjs for this test fixture.',
   'README.md': '## Agent setup\n\nRead `node_modules/@lupinum/example/dist/agent/AGENTS.md`.\n',
 }
 
@@ -144,7 +144,7 @@ test('excess tooling warns', () => {
 
 test('an extra workflow named in DECISIONS.md passes', () => {
   const extra = { '.github/workflows/extra.yml': 'on: push\npermissions: {}\njobs: {}\n' }
-  assert.equal(audit({ ...extra, 'DECISIONS.md': '- D2 (2026-09-27): Keep extra.yml — it runs a slow weekly check.' })['FILE-01'].status, 'pass')
+  assert.equal(audit({ ...extra, 'internals/decisions.md': '- D2 (2026-09-27): Keep extra.yml — it runs a slow weekly check.' })['FILE-01'].status, 'pass')
 })
 
 test('a publish dry run outside the npm environment passes; a real publish there fails', () => {
@@ -320,8 +320,15 @@ test('a library without issue forms or a pull request template warns', () => {
   assert.equal(audit({ '.github/ISSUE_TEMPLATE/bug.yml': null })['FILE-08'].status, 'warn')
 })
 
+test('a file in its old root location still counts, with a warning to move it', () => {
+  const moved = audit({ 'internals/decisions.md': null, 'DECISIONS.md': '# Decisions\n', '.github/renovate.json': null, 'renovate.json': '{ "minimumReleaseAge": "1 day" }' })['FILE-08']
+  assert.equal(moved.status, 'warn')
+  assert.match(moved.detail, /move DECISIONS\.md to internals\/decisions\.md/)
+  assert.match(moved.detail, /move renovate\.json to \.github\/renovate\.json/)
+})
+
 test('required contributing and Claude files fail when missing', () => {
-  for (const file of ['CONTRIBUTING.md', 'CLAUDE.md']) {
+  for (const file of ['.github/CONTRIBUTING.md', '.claude/CLAUDE.md']) {
     assert.equal(audit({ [file]: null })['FILE-08'].status, 'fail', file)
   }
 })
@@ -329,18 +336,18 @@ test('required contributing and Claude files fail when missing', () => {
 test('starter drift warns, accepts tokens and trailing whitespace, and records explanations', () => {
   const owned = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs']
   const files = Object.fromEntries(owned.map(file => [file, readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8').replaceAll(/\{\{[A-Z_]+\}\}/g, 'example').split('\n').map(line => `${line}  `).join('\n')]))
-  assert.equal(audit({ ...files, 'DECISIONS.md': '' })['FILE-10'].status, 'pass')
+  assert.equal(audit({ ...files, 'internals/decisions.md': '' })['FILE-10'].status, 'pass')
   // Renovate moves action pins in every repository; another pinned commit is not drift.
   const repinned = files['.github/workflows/release.yml'].replace(/(actions\/checkout@)[0-9a-f]{40}( # \S+)?/, `$1${'b'.repeat(40)} # v9.9.9`)
   assert.notEqual(repinned, files['.github/workflows/release.yml'])
-  assert.equal(audit({ ...files, '.github/workflows/release.yml': repinned, 'DECISIONS.md': '' })['FILE-10'].status, 'pass')
+  assert.equal(audit({ ...files, '.github/workflows/release.yml': repinned, 'internals/decisions.md': '' })['FILE-10'].status, 'pass')
   for (const file of owned) {
     for (const content of [null, `${files[file]}\n# drift`]) {
-      const result = audit({ ...files, [file]: content, 'DECISIONS.md': '' })['FILE-10']
+      const result = audit({ ...files, [file]: content, 'internals/decisions.md': '' })['FILE-10']
       assert.equal(result.status, 'warn', file)
       assert.match(result.detail, new RegExp(file.replaceAll('.', '\\.')))
     }
-    assert.equal(audit({ ...files, [file]: null, 'DECISIONS.md': `Keep ${file.split('/').at(-1)}.` })['FILE-10'].status, 'pass')
+    assert.equal(audit({ ...files, [file]: null, 'internals/decisions.md': `Keep ${file.split('/').at(-1)}.` })['FILE-10'].status, 'pass')
   }
 })
 
@@ -362,7 +369,8 @@ test('each new remote auto check detects its failing or warning case', async () 
     ['DOC-02', 'fail', { fetch: async url => ({ ok: !url.endsWith('/llms.txt'), status: url.endsWith('/llms.txt') ? 404 : 200, text: async () => '# Docs' }) }],
     ...['<example', 'Component omitted', '<pm-install'].map(placeholder => ['DOC-02', 'fail', { fetch: async url => ({ ok: true, status: 200, text: async () => url.endsWith('/llms-full.txt') ? placeholder : '# Docs' }) }]),
     // Naming a placeholder in code is documentation, not a placeholder.
-    ['DOC-02', 'pass', { fetch: async () => ({ ok: true, status: 200, text: async () => 'Check for `<example` and:\n\n```md\n<pm-install>\n```\n' }) }],
+    ['DOC-02', 'pass', { fetch: async () => ({ ok: true, status: 200, text: async () => 'Check for `<example`, ``Component omitted`` and:\n\n```md\n<pm-install>\n```\n\n~~~md\n<example name="x" />\n~~~\n' }) }],
+    ['DOC-02', 'fail', { fetch: async url => ({ ok: true, status: 200, text: async () => url.endsWith('/llms-full.txt') ? '```md\ncode\n```\n\n<example name="x" />\n' : '# Docs' }) }],
     ['OPS-01', 'fail', { fleet: [] }],
     ['OPS-02', 'fail', { overrides: { 'repos/o/r/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=1': { workflow_runs: [{ conclusion: 'failure' }] } } }],
     ['OPS-03', 'fail', { overrides: { 'repos/o/r/dependabot/alerts?state=open&severity=high,critical&per_page=100': [{ security_advisory: { severity: 'high' } }, { security_advisory: { severity: 'critical' } }] } }],
@@ -381,7 +389,7 @@ test('each new remote auto check detects its failing or warning case', async () 
 
 test('DECISIONS exceptions apply by item ID, but no-exception safety checks still fail', () => {
   const decisions = '- D2 (2026-10-01): Use another updater (FILE-07) — Renovate is unavailable\n- D3 (2026-10-01): Allow an unpinned action (FILE-03) — no\n'
-  const result = audit({ 'DECISIONS.md': decisions, 'renovate.json': null, '.github/workflows/ci.yml': library['.github/workflows/ci.yml'].replace(sha, 'v4') })
+  const result = audit({ 'internals/decisions.md': decisions, '.github/renovate.json': null, '.github/workflows/ci.yml': library['.github/workflows/ci.yml'].replace(sha, 'v4') })
   assert.equal(result['FILE-07'].status, 'pass')
   assert.equal(result['FILE-07'].detail, '- D2 (2026-10-01): Use another updater (FILE-07) — Renovate is unavailable')
   assert.equal(result['FILE-03'].status, 'fail')
