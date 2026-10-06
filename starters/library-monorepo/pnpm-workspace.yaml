@@ -30,6 +30,12 @@ overrides:
 
 auditConfig:
   ignoreGhsas:
+    # No fixed simple-git 3.x, and Nuxt DevTools fails to load 4.x. DevTools runs only in `nuxt dev`
+    # on a developer machine with the repository's own arguments. Recheck 2026-11-06.
+    - GHSA-v5rq-49vh-5v5c
+    - GHSA-x6jw-m9v5-85vh
+    - GHSA-g4wm-2vf7-vfgr
+    - GHSA-858h-whjf-mvg5
     # No published fix; braces processes build-time glob patterns, not published site input. Recheck 2026-11-01.
     - GHSA-vfj7-8cjw-p6xm
     # No published fix; node-forge is used only for listhen dev-server self-signed certificates. Recheck 2026-11-01.
