@@ -152,7 +152,7 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
   // Preserve raw checks across the local/remote merge, without adding them to JSON output.
   const checks = results.flatMap(result => result.results ?? [result])
   const count = id => checks.filter(result => (CHECK_ITEMS[result.id] ?? result.id) === id).length
-  const decisions = decisionsText(src).split('\n').filter(line => /^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line))
+  const decisions = decisionEntries(decisionsText(src))
   const items = new Map()
   for (const result of checks) {
     const id = CHECK_ITEMS[result.id] ?? result.id
@@ -194,6 +194,18 @@ const LAYOUT = [
 ]
 // Locations used before the shared layout; they still count, with a warning to move them.
 const OLD_LOCATIONS = { '.github/CONTRIBUTING.md': 'CONTRIBUTING.md', '.github/SECURITY.md': 'SECURITY.md', '.claude/CLAUDE.md': 'CLAUDE.md', [DECISIONS_FILE]: 'DECISIONS.md' }
+// One entry per decision: its `Dn` line plus the indented lines that continue it.
+export function decisionEntries(text) {
+  const entries = []
+  for (const line of text.split('\n')) {
+    if (/^\s*(?:-\s*)?(?:\*\*)?D\d+\b/.test(line)) entries.push(line)
+    else if (entries.length && /^\s+\S/.test(line)) entries[entries.length - 1] += ` ${line.trim()}`
+    else if (!line.trim()) continue
+    else entries.push(null) // a heading or paragraph ends the entry before it
+  }
+  return entries.filter(Boolean)
+}
+
 export const decisionsText = src => src.read(DECISIONS_FILE) ?? src.read('DECISIONS.md') ?? ''
 
 const OWNED_FILES = ['.github/workflows/release.yml', '.github/workflows/preview.yml', 'scripts/release.mjs', 'scripts/lint-changesets.mjs', 'scripts/agent-docs.mjs', 'scripts/audit-deps.mjs']
@@ -779,7 +791,7 @@ async function main(argv) {
       const blocking = open.filter(item => item.status !== 'warn')
       const warnings = items.filter(item => item.status === 'warn')
       console.log(`Open: ${blocking.length ? blocking.map(item => `${item.id} (${item.status === 'open' ? item.check : item.status})`).join(', ') : 'none'}`)
-      if (warnings.length) console.log(`Warnings: ${warnings.map(item => item.advice ? `${item.id} (advice)` : item.id).join(', ')}`)
+      console.log(`Warnings: ${warnings.length ? warnings.map(item => item.advice ? `${item.id} (advice)` : item.id).join(', ') : 'none'}`)
     }
   }
   return reports.some(report => report.items.some(item => item.status === 'fail')) ? 1 : 0

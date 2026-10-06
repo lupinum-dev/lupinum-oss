@@ -128,6 +128,14 @@ test('an extra workflow named in DECISIONS.md passes', () => {
   assert.equal(audit({ ...extra, 'internals/decisions.md': '- D2 (2026-09-27): Keep it (FILE-01: extra.yml) — it runs a slow weekly check.' })['FILE-01'].status, 'pass')
 })
 
+test('an exception on a continuation line of a decision counts', () => {
+  const extra = { '.github/workflows/extra.yml': 'on: push\npermissions: {}\njobs: {}\n' }
+  const wrapped = '- **D2 (2026-09-27): Keep a weekly check.**\n  It runs slowly (FILE-01: extra.yml).\n\nA paragraph (FILE-01: other.yml).\n'
+  assert.equal(audit({ ...extra, 'internals/decisions.md': wrapped })['FILE-01'].status, 'pass')
+  const unrelated = '- D2 (2026-09-27): Keep a weekly check.\n\nA paragraph (FILE-01: extra.yml).\n'
+  assert.equal(audit({ ...extra, 'internals/decisions.md': unrelated })['FILE-01'].status, 'warn')
+})
+
 test('changesets config is required', () => {
   assert.equal(audit({ '.changeset/config.json': null })['FILE-05'].status, 'fail')
   assert.equal(audit({ '.changeset/config.json': '{ "changelog": "@changesets/cli/changelog" }' })['FILE-05'].status, 'pass')
