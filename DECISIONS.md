@@ -2,6 +2,18 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D8 (2026-10-06): Drop the stages; agent docs are a docs item; fix starter bugs found in nuxt-photo.** — The
+  first adoption reported nuxt-photo at "stage 0" although only the agent-docs export was missing, because that
+  file item sat in the first stage. A ranked stage hid what was open, so the audit now answers "follows the
+  standard: yes or no" and lists the open items; the groups stay as headings. The agent-docs export moves from
+  FILE-11 to DOC-03. NPM-01 (trusted publisher, manual) is gone: provenance on the published versions (now NPM-02)
+  proves it. FILE-10 ignores the commit an action is pinned to, because Renovate moves the pins in every
+  repository. The starter's release check ran while changesets were pending: a skipped step leaves its output
+  empty, and `'' == '0'` is true in expressions. The Upgrade page starts with the first stable release; between
+  prereleases nobody depends on the old API and the changelog is enough. Prereleases are named `next`; a line
+  already in another prerelease keeps its name until its stable release. Considered and not changed: auditing
+  only production dependencies. `pnpm audit --prod` still covers the docs app, whose Nuxt pulls in the same
+  tree, and `--filter` on `pnpm audit` behaves differently between pnpm 11 releases.
 - **D7 (2026-10-03): The standard has a checklist; libraries are mostly Nuxt modules; docs reach agents through
   the package.** — "Follows the standard" had no definition, so every library invented its own finish line. The
   Checklist page now lists every item with an ID, a stage (Built, Protected, Released, Documented, Maintained) and
