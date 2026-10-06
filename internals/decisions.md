@@ -2,6 +2,14 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D13 (2026-10-06): Fixes from the three pilots.** — website-config, nuxt-photo and nuxt-email migrated and
+  released through `release.yml`. What broke or misled: the publish job failed when the approval came before
+  `ci` on the merge commit had finished, so it now waits up to an hour; an `npm view` error counted as "not
+  published", so only `E404` does now; the starter published a package before the sibling it pins, so
+  `release.mjs pack` orders tarballs by dependency (#102); the audit read only the first line of a decision,
+  so it now reads the whole entry. The handbook gained the cases the pilots hit: README-only leftovers,
+  `ci.yml` only has to pass FILE-02, newer action pins stay, trusted publishers are set up right before the
+  first release (npm drops unused connections), and committed files must not contain the package version.
 - **D12 (2026-10-06): The sweet spot: must and advice, optional docs, advisories that reach users.** — A fleet
   check found all 14 libraries at "no", mostly for items that guard nothing, while the audit passed things it did
   not check. So:

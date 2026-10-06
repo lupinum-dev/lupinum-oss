@@ -9,4 +9,6 @@ test('only high or critical findings through public importers block', () => {
     ['Public dependency', true], ['Docs dependency', false], ['Moderate dependency', false],
   ])
   assert.deepEqual(classifyAdvisories(report, new Set()).map(({ blocks }) => blocks), [false, false, false])
+  // A moderate finding in a published package's dependencies reaches users but does not block.
+  assert.deepEqual(classifyAdvisories(report, new Set(['.', 'packages__x'])).map(({ reachesUsers }) => reachesUsers), [true, false, true])
 })
