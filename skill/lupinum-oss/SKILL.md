@@ -54,9 +54,8 @@ instead of inventing a third rule.
 - **Change a library.** Follow its `AGENTS.md`. Add a changeset for every
   user-facing change. Run `pnpm verify` before you hand off.
 - **Check.** Run `pnpm audit:repos OWNER/REPO` (or
-  `node scripts/audit.mjs --local DIR` before the first push). Do the open
-  `agent` items you can do now if the user asked for work, and record their
-  evidence in `fleet/libraries.json`.
+  `node scripts/audit.mjs --local DIR` before the first push). The answer
+  depends only on the must items; advice is a warning.
 
 ## Limits
 
@@ -68,7 +67,7 @@ instead of inventing a third rule.
 
 ## Report
 
-Lead with whether the library follows the standard. List the open items
+Lead with whether the library follows the standard. List the open must items
 by item ID, one line each, grouped as "I can do now" and "needs the
-maintainer". Then say what you changed, what you ran with its result, and what
+maintainer". Put advice in one line at the end. Then say what you changed, what you ran with its result, and what
 you could not verify.
