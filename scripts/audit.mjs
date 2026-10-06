@@ -153,6 +153,7 @@ export function checklistItems(results, src, { publishes = publicPackages(src).l
   for (const result of results) {
     const id = CHECK_ITEMS[result.id] ?? result.id
     if (!publishes && LIBRARY_ONLY.has(id)) continue
+    if (/^DOC-0[1-4]$/.test(id) && !src.files.some(file => file.startsWith('docs/'))) continue
     const previous = items.get(id)
     items.set(id, {
       id, advice: ADVICE.has(id), check: id === 'DOC-05' ? 'agent' : EVIDENCE_CHECKS[id] ?? 'auto',
@@ -332,6 +333,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     // `./agent-docs` export; the README they see (the package's own) says how to point at it.
     // `files` entries are matched on directory boundaries (`dist`, `dist/`, `dist/**`); a glob or
     // negation inside an entry is beyond this check, which then reports the export as not shipped.
+    if (src.files.some(file => file.startsWith('docs/'))) {
     const agentProblems = []
     for (const { dir, manifest } of publicManifests(src)) {
       const target = manifest.exports?.['./agent-docs']?.replace?.(/^\.\//, '')
@@ -342,6 +344,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     }
     add('agent-docs', agentProblems.length ? 'fail' : 'pass', agentProblems.length ? list(agentProblems) : "'./agent-docs' export and README agent setup")
 
+    }
     const preview = workflows.get('preview.yml')?.text ?? ''
     add('preview', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pass' : 'warn', /pkg-pr-new|pkg\.pr\.new/.test(preview) ? 'pkg.pr.new' : 'preview.yml does not use pkg.pr.new')
   }
@@ -387,6 +390,13 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
 
   // 11. Docs deploy through Vercel Git integration with an ignore command.
   if (src.files.some(file => file.startsWith('docs/'))) {
+    const docs = json(src.read('docs/package.json'))
+    const ginko = { ...docs?.dependencies, ...docs?.devDependencies }['@lupinum/ginko-docs']
+    add('DOC-01', ginko ? 'pass' : 'fail', ginko ? 'ginko-docs dependency' : 'docs/package.json needs @lupinum/ginko-docs')
+    const folders = [...new Set(src.files.filter(file => /^docs\/content\/docs\/[^/]+\//.test(file)).map(file => file.split('/')[3]))].sort().map(name => name.replace(/^\d+\./, ''))
+    const order = ['start', 'guides', 'reference', 'help']
+    const valid = folders.includes('start') && folders.includes('reference') && folders.every((name, i) => order.includes(name) && (i === 0 || order.indexOf(name) > order.indexOf(folders[i - 1])))
+    add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : 'use start, guides, reference, help in order; include start and reference')
     const vercel = json(src.read('docs/vercel.json') ?? src.read('vercel.json'))
     add('vercel', vercel?.ignoreCommand ? 'pass' : 'warn', vercel?.ignoreCommand ? `ignoreCommand: ${vercel.ignoreCommand}` : 'docs exist but vercel.json has no ignoreCommand')
   }
@@ -402,7 +412,7 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
 
   if (publishes) {
     const starterFile = file => { try { return readFileSync(new URL(`../starters/_shared/library/${file}`, import.meta.url), 'utf8') } catch { return null } }
-    const different = OWNED_FILES.filter(file => starterFile(file) !== null && !matchesStarter(src.read(file), starterFile(file)))
+    const different = OWNED_FILES.filter(file => (file !== 'scripts/agent-docs.mjs' || src.files.some(file => file.startsWith('docs/'))) && starterFile(file) !== null && !matchesStarter(src.read(file), starterFile(file)))
     const unexplained = different.filter(file => !decisions.includes(file.split('/').at(-1)))
     add('FILE-10', unexplained.length ? 'warn' : 'pass', unexplained.length
       ? `missing or different from starter: ${list(unexplained)}`
@@ -663,6 +673,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     add('NPM-03', failed ? 'fail' : unreadable ? 'warn' : 'pass', problems.length ? list(problems) : 'newest published versions have GitHub releases')
   }
 
+  if (src.files.some(file => file.startsWith('docs/'))) {
   const homepage = json(src.read('package.json'))?.homepage
   // The URL comes from the audited repository, so only public HTTPS host names are fetched.
   const publicHttps = url => { try { const { protocol, hostname } = new URL(url); return protocol === 'https:' && hostname.includes('.') && !/^[\d.]+$|^\[|localhost$|\.local$|\.internal$/.test(hostname) } catch { return false } }
@@ -700,6 +711,7 @@ export async function auditSettings(src, { publishes = publicPackages(src).lengt
     add('DOC-02', problems.length ? 'fail' : 'pass', problems.length ? list(problems) : 'llms.txt answers; available agent Markdown has no placeholders')
   }
 
+  }
   if (publishes) add('DOC-05', 'warn', 'agent check, see writing-docs')
   const entry = fleet.find(entry => entry.repository === repo)
   add('OPS-01', entry ? 'pass' : 'fail', entry ? 'listed in fleet/libraries.json' : 'not listed in fleet/libraries.json')

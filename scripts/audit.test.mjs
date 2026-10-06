@@ -7,6 +7,10 @@ import { auditFiles, auditSettings, compareVersions, localSource, checklistItems
 
 const sha = 'a'.repeat(40)
 const library = {
+  'docs/vercel.json': '{"ignoreCommand":"true"}',
+  'docs/package.json': JSON.stringify({ dependencies: { '@lupinum/ginko-docs': '1.0.0' } }),
+  'docs/content/docs/1.start/index.md': '# Start',
+  'docs/content/docs/2.reference/index.md': '# Reference',
   '.github/ISSUE_TEMPLATE/bug.yml': 'name: Bug report\n',
   '.github/ISSUE_TEMPLATE/config.yml': 'blank_issues_enabled: false\n',
   '.github/pull_request_template.md': '## What and why\n',
@@ -207,7 +211,7 @@ async function auditRemote({ overrides = {}, meta = {}, publishes = true, tags =
     repository: 'o/r',
     branch: 'main',
     meta: { allow_auto_merge: false, security_and_analysis: { secret_scanning: { status: 'enabled' }, secret_scanning_push_protection: { status: 'enabled' } }, ...meta },
-    files: ['package.json'],
+    files: ['package.json', 'docs/package.json'],
     read: path => ({ 'package.json': JSON.stringify({ name: '@lupinum/example', homepage }), 'pnpm-workspace.yaml': workspace })[path] ?? null,
   }
   const results = await auditSettings(src, { publishes, api, registry, fetch, fleet, now: Date.parse('2026-10-03T00:00:00Z') })
@@ -427,4 +431,19 @@ test('advice never fails and each JSON item identifies advice', () => {
   assert.equal(items[0].advice, false)
   assert.equal(items[1].advice, true)
   assert.equal(items[1].status, 'warn')
+})
+
+test('docs checks apply only when docs files exist', () => {
+  const result = audit({ 'docs/vercel.json': null, 'docs/package.json': null, 'docs/content/docs/1.start/index.md': null, 'docs/content/docs/2.reference/index.md': null, 'scripts/agent-docs.mjs': null })
+  for (const id of ['DOC-01', 'DOC-02', 'DOC-03', 'DOC-04']) assert.equal(result[id], undefined)
+  assert.equal(audit({ 'docs/package.json': '{}' })['DOC-01'].status, 'fail')
+})
+
+test('docs sections include start and reference in the standard order', () => {
+  for (const overrides of [
+    { 'docs/content/docs/2.reference/index.md': null },
+    { 'docs/content/docs/3.other/index.md': '# Other' },
+    { 'docs/content/docs/1.start/index.md': null, 'docs/content/docs/3.start/index.md': '# Start' },
+  ]) assert.equal(audit(overrides)['DOC-04'].status, 'warn')
+  assert.equal(audit()['DOC-04'].status, 'pass')
 })
