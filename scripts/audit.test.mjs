@@ -437,6 +437,10 @@ test('pnpm quarantine requires version 11 and strict age enforcement', () => {
   const pkg = JSON.parse(library['package.json'])
   assert.equal(audit({ 'package.json': JSON.stringify({ ...pkg, packageManager: 'pnpm@10.0.0' }) })['FILE-06'].status, 'fail')
   assert.equal(audit({ 'pnpm-workspace.yaml': library['pnpm-workspace.yaml'].replace('minimumReleaseAgeStrict: true', 'minimumReleaseAgeStrict: false') })['FILE-06'].status, 'fail')
+  // Our own scope may skip the quarantine; any other exclusion still warns.
+  const ws = library['pnpm-workspace.yaml']
+  assert.equal(audit({ 'pnpm-workspace.yaml': `${ws}minimumReleaseAgeExclude:\n  - '@lupinum/*'\n` })['FILE-06'].status, 'pass')
+  assert.equal(audit({ 'pnpm-workspace.yaml': `${ws}minimumReleaseAgeExclude:\n  - '@lupinum/*'\n  - other@1.0.0\n` })['FILE-06'].status, 'warn')
 })
 
 test('required ci job always waits for every other job', () => {

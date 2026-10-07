@@ -2,6 +2,12 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D14 (2026-10-07): Our own `@lupinum/*` scope skips the dependency quarantine (FILE-06).** — The Ginko
+  libraries depend on each other and release several times a week; a 24-hour wait per release wave turned one
+  coordinated release into several days. Only our protected `release.yml` workflows publish to the scope, so the
+  quarantine guards nothing there. The starters carry the exclusion; the audit accepts exactly `@lupinum/*` and
+  still warns on any other exclusion. Review when release frequency drops.
+
 - **D13 (2026-10-06): Fixes from the three pilots.** — website-config, nuxt-photo and nuxt-email migrated and
   released through `release.yml`. What broke or misled: the publish job failed when the approval came before
   `ci` on the merge commit had finished, so it now waits up to an hour; an `npm view` error counted as "not

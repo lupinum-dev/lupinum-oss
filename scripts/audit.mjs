@@ -130,6 +130,7 @@ function publicManifests(src) {
 // Checklist metadata is shared by aggregation, evidence and both output formats.
 const GROUPS = { FILE: 'Files', GH: 'GitHub settings', NPM: 'npm', DOC: 'Docs', OPS: 'Maintenance' }
 const LIBRARY_ONLY = new Set(['FILE-04', 'FILE-05', 'FILE-10', 'GH-02', 'GH-05', 'NPM-01', 'NPM-02', 'NPM-03', 'NPM-04', 'DOC-03', 'DOC-04', 'DOC-05'])
+const OWN_SCOPE_EXCLUSION = '@lupinum/*'
 const NO_EXCEPTION = new Set(['FILE-03', 'FILE-04', 'FILE-06', 'GH-01', 'GH-02', 'GH-05'])
 const ADVICE = new Set(['FILE-07', 'FILE-08', 'FILE-09', 'GH-03', 'GH-08', 'NPM-04', 'DOC-04', 'DOC-05', 'OPS-03', 'OPS-04', 'OPS-05'])
 const EVIDENCE_CHECKS = { 'NPM-01': 'manual' }
@@ -346,7 +347,8 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
   if (workspace.minimumReleaseAgeStrict !== true) quarantineProblems.push('minimumReleaseAgeStrict must be true')
   if (!(Number(workspace.minimumReleaseAge) >= 1440)) quarantineProblems.push(`minimumReleaseAge is ${workspace.minimumReleaseAge ?? 'unset'} (need >= 1440)`)
   if (workspace.dangerouslyAllowAllBuilds === true) quarantineProblems.push('dangerouslyAllowAllBuilds is true')
-  const excluded = workspace.minimumReleaseAgeExclude ?? []
+  // Our own scope may skip the quarantine (decided 2026-10-07); any other exclusion warns.
+  const excluded = (workspace.minimumReleaseAgeExclude ?? []).filter(entry => entry !== OWN_SCOPE_EXCLUSION)
   if (quarantineProblems.length) add('pnpm-quarantine', 'fail', list(quarantineProblems))
   else if (excluded.length) add('pnpm-quarantine', 'warn', `quarantine exclusions present: ${list(excluded)}`)
   else add('pnpm-quarantine', 'pass', `minimumReleaseAge ${workspace.minimumReleaseAge}`)
