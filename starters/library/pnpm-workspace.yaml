@@ -6,6 +6,9 @@ packages:
 # Dependency quarantine: never install versions younger than 24 hours.
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
+# Our own scope skips it: only our protected release workflows publish it (D14).
+minimumReleaseAgeExclude:
+  - '@lupinum/*'
 
 # Only these dependencies may run install scripts.
 allowBuilds:

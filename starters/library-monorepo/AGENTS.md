@@ -39,8 +39,9 @@ to add a pointer to it. Keep the `./agent-docs` export and that section.
   and says what users must do.
 - A new package joins the `fixed` group in `.changeset/config.json`. Its first
   npm version is published by the maintainer (see the Lupinum OSS handbook).
-- Do not bypass the 24-hour dependency quarantine (`minimumReleaseAge`). Do not
-  add dependencies to `allowBuilds` without a reason.
+- Do not bypass the 24-hour dependency quarantine (`minimumReleaseAge`). Only our
+  own `@lupinum/*` scope is excluded. Do not add dependencies to `allowBuilds`
+  without a reason.
 - Pin GitHub Actions to full commit SHAs. Give each job only the permissions it needs.
 - Keep tooling lean. Add a script, check or workflow only when it guards
   behaviour users rely on or closes a real attack path. Process is not security.
