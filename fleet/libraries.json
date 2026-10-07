@@ -61,6 +61,10 @@
     {
       "repository": "lupinum-dev/nuxt-basin",
       "evidence": {}
+    },
+    {
+      "repository": "lupinum-dev/ginko-i18n",
+      "evidence": {}
     }
   ]
 }
