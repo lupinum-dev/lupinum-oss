@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "homepage": "https://{{DOMAIN}}",
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@11.28.5",
   "scripts": {
     "dev": "pnpm -r --parallel --filter './packages/*' dev",
     "build": "pnpm -r --filter './packages/*' build && pnpm docs:build && node scripts/agent-docs.mjs && pnpm -r --filter './packages/*' exec publint",
