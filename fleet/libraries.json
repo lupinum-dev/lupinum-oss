@@ -6,7 +6,9 @@
     },
     {
       "repository": "lupinum-dev/better-convex",
-      "evidence": {}
+      "evidence": {
+        "NPM-01": "2026-10-08 — trusted publisher release.yml (environment npm, publish); 2FA required, tokens disallowed"
+      }
     },
     {
       "repository": "lupinum-dev/ginko-content",
@@ -42,7 +44,9 @@
     },
     {
       "repository": "lupinum-dev/nuxt-tour",
-      "evidence": {}
+      "evidence": {
+        "NPM-01": "2026-10-08 — trusted publisher release.yml (environment npm, publish); 2FA required, tokens disallowed"
+      }
     },
     {
       "repository": "lupinum-dev/website-config",
