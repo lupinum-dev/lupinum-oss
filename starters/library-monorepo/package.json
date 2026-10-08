@@ -21,7 +21,7 @@
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
     "@nuxt/eslint-config": "^1.17.0",
-    "@types/node": "26.1.1",
+    "@types/node": "26.6.4",
     "eslint": "^10.9.0",
     "pkg-pr-new": "0.0.87",
     "publint": "0.3.25",
