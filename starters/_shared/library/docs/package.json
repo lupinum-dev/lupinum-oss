@@ -8,7 +8,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@lupinum/ginko-content": "1.0.0-beta.5",
+    "@lupinum/ginko-content": "1.0.0-beta.9",
     "@lupinum/ginko-docs": "0.4.0-rc.4",
     "nuxt": "^4.5.2",
     "nuxt-site-config": "4.2.3",
