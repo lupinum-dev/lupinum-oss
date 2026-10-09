@@ -21,7 +21,7 @@ overrides:
   # Remove when Vite requires esbuild 0.28.1 or newer.
   "vite>esbuild": 0.28.2
   # Remove when Nuxt requires devalue 5.9.1 or newer (GHSA DoS in devalue < 5.9.1).
-  devalue: 5.9.4
+  devalue: 6.0.2
   # Remove when @vue/compiler-core requires source-map-js 1.2.2 or newer (GHSA-68fv-2mgg-jv7q).
   source-map-js: 1.2.2
 
