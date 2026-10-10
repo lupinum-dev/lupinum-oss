@@ -10,7 +10,7 @@
   "repository": { "type": "git", "url": "git+https://github.com/{{REPOSITORY}}.git" },
   "bugs": { "url": "https://github.com/{{REPOSITORY}}/issues" },
   "packageManager": "pnpm@11.28.5",
-  "engines": { "node": "^22.14.0 || ^24.0.0 || ^26.0.0" },
+  "engines": { "node": "v26.11.1" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./agent-docs": "./dist/agent/AGENTS.md"
@@ -34,13 +34,13 @@
   "devDependencies": {
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
-    "@nuxt/eslint-config": "^1.17.0",
+    "@nuxt/eslint-config": "1.17.0",
     "@types/node": "26.6.4",
-    "eslint": "^10.9.0",
+    "eslint": "10.12.0",
     "pkg-pr-new": "0.0.90",
     "publint": "0.3.25",
-    "tsup": "^8.5.1",
-    "typescript": "~5.9.3",
-    "vitest": "^4.1.8"
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
   }
 }

@@ -9,7 +9,7 @@
   "homepage": "https://{{DOMAIN}}",
   "repository": { "type": "git", "url": "git+https://github.com/{{REPOSITORY}}.git", "directory": "packages/{{PACKAGE_DIR}}" },
   "bugs": { "url": "https://github.com/{{REPOSITORY}}/issues" },
-  "engines": { "node": "^22.14.0 || ^24.0.0 || ^26.0.0" },
+  "engines": { "node": "v26.11.1" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./agent-docs": "./dist/agent/AGENTS.md"
@@ -22,5 +22,5 @@
     "build": "tsup src/index.ts --format esm --dts --clean",
     "dev": "tsup src/index.ts --format esm --dts --watch"
   },
-  "devDependencies": { "tsup": "^8.5.1", "typescript": "~5.9.3" }
+  "devDependencies": { "tsup": "8.5.1", "typescript": "5.9.3" }
 }
