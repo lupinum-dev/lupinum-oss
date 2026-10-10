@@ -27,12 +27,12 @@ jobs:
       pending: ${{ steps.version.outputs.pending }}
       publish: ${{ steps.check.outputs.publish }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version: 24.21.0
           package-manager-cache: false
       - run: corepack enable pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
@@ -56,7 +56,7 @@ jobs:
           git diff --cached --binary --no-renames > "$OUT/version.patch"
           echo "pending=$(jq 'length > 0' "$OUT/versions.json")" >> "$GITHUB_OUTPUT"
       - if: steps.version.outputs.pending == 'true'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: version
           path: ${{ runner.temp }}/version
@@ -98,10 +98,10 @@ jobs:
       pushed: ${{ steps.push.outputs.pushed }}
     steps:
       # Keeps the checkout credentials to push; nothing from the repository runs in this job.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: version
           path: ${{ runner.temp }}/version
@@ -184,13 +184,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0 # the release summary compares with the last release tag
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version: 24.21.0
           package-manager-cache: false
       - run: corepack enable pnpm
       # Shown on the run page where the maintainer approves the publish: what changed in the release
@@ -255,7 +255,7 @@ jobs:
             tag=latest; if [[ "$version" == *-* ]]; then tag=next; fi
             npm publish "$tarball" --dry-run --access public --ignore-scripts --tag "$tag"
           done
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: release
           path: release
@@ -271,11 +271,11 @@ jobs:
       checks: read # require a green `ci` on the released commit
       id-token: write # npm trusted publishing and provenance
     steps:
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version: 24.21.0
           package-manager-cache: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release
           path: release
@@ -350,7 +350,7 @@ jobs:
     permissions:
       contents: write # create the tag and the GitHub release
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release
           path: release
