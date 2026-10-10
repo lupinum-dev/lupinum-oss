@@ -28,7 +28,7 @@ overrides:
   'vite>esbuild': 0.28.2
   # Remove when @lupinum/ginko-docs requires satori 0.33.5 or newer (GHSA-wx4j-mvgx-mqwp;
   # nuxt-og-image 6.9 refuses older versions) and satori requires fflate 0.7.5 or newer.
-  '@lupinum/ginko-docs>satori': 0.35.1
+  '@lupinum/ginko-docs>satori': 0.47.1
   'satori>fflate': 0.8.3
 
 auditConfig:
