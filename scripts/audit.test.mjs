@@ -306,7 +306,9 @@ test('the docs ignore step must be the starter script, not a one-line diff', () 
   const oneLine = JSON.stringify({ ignoreCommand: '[ -n "$VERCEL_GIT_PREVIOUS_SHA" ] && git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . || exit 1' })
   const drifted = `${library['docs/scripts/vercel-ignore.mjs']}\nprocess.exit(0)\n`
   for (const [files, detail] of [
-    [{ 'docs/vercel.json': oneLine, 'docs/scripts/vercel-ignore.mjs': null }, /does not use docs\/scripts\/vercel-ignore\.mjs/],
+    [{ 'docs/vercel.json': oneLine, 'docs/scripts/vercel-ignore.mjs': null }, /does not run docs\/scripts\/vercel-ignore\.mjs/],
+    [{ 'docs/vercel.json': JSON.stringify({ ignoreCommand: 'echo scripts/vercel-ignore.mjs' }) }, /does not run docs\/scripts\/vercel-ignore\.mjs/],
+    [{ 'docs/scripts/vercel-ignore.mjs': null }, /docs\/scripts\/vercel-ignore\.mjs, which does not exist/],
     [{ 'docs/vercel.json': '{}' }, /has no ignoreCommand/],
     [{ 'docs/scripts/vercel-ignore.mjs': drifted }, /differs from the starter/],
   ]) {
