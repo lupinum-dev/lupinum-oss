@@ -382,8 +382,16 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const order = ['start', 'guides', 'reference', 'help']
     const valid = folders.includes('start') && folders.includes('reference') && folders.every((name, i) => order.includes(name) && (i === 0 || order.indexOf(name) > order.indexOf(folders[i - 1])))
     add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : `sections are ${list(folders) || 'missing'}; use start and reference, plus guides and help if needed, in that order`)
+    // A one-line git diff builds every new branch and every force-pushed release branch, because Vercel's
+    // previous commit is then unknown or missing from its shallow clone. The starter's script handles both.
     const vercel = json(src.read('docs/vercel.json') ?? src.read('vercel.json'))
-    add('vercel', vercel?.ignoreCommand ? 'pass' : 'warn', vercel?.ignoreCommand ? `ignoreCommand: ${vercel.ignoreCommand}` : 'docs exist but vercel.json has no ignoreCommand')
+    const ignoreScript = 'docs/scripts/vercel-ignore.mjs'
+    const usesScript = /\bscripts\/vercel-ignore\.mjs\b/.test(vercel?.ignoreCommand ?? '')
+    const scriptMatches = !src.files.includes(ignoreScript) || matchesStarter(src.read(ignoreScript), readFileSync(new URL(`../starters/_shared/library/${ignoreScript}`, import.meta.url), 'utf8'))
+    add('vercel', usesScript && scriptMatches ? 'pass' : 'warn', usesScript && scriptMatches ? `ignoreCommand: ${vercel.ignoreCommand}`
+      : !vercel?.ignoreCommand ? `docs exist but vercel.json has no ignoreCommand; copy ${ignoreScript} and the ignoreCommand from the starter`
+      : usesScript ? `${ignoreScript} differs from the starter; copy it from lupinum-oss`
+      : `ignoreCommand does not use ${ignoreScript}; copy the script and the ignoreCommand from the starter, so new and force-pushed branches skip unchanged docs`)
   }
 
   // 12. Excess tooling.

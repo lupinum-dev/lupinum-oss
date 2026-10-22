@@ -8,7 +8,8 @@ import { auditFiles, auditSettings, compareVersions, localSource, checklistItems
 const sha = 'a'.repeat(40)
 const library = {
   'scripts/audit-deps.mjs': readFileSync(new URL('../starters/_shared/library/scripts/audit-deps.mjs', import.meta.url), 'utf8'),
-  'docs/vercel.json': '{"ignoreCommand":"true"}',
+  'docs/vercel.json': readFileSync(new URL('../starters/_shared/library/docs/vercel.json', import.meta.url), 'utf8'),
+  'docs/scripts/vercel-ignore.mjs': readFileSync(new URL('../starters/_shared/library/docs/scripts/vercel-ignore.mjs', import.meta.url), 'utf8'),
   'docs/package.json': JSON.stringify({ dependencies: { '@lupinum/ginko-docs': '1.0.0' } }),
   'docs/content/docs/1.start/index.md': '# Start',
   'docs/content/docs/2.reference/index.md': '# Reference',
@@ -301,6 +302,20 @@ test('a file in its old root location still counts, with a warning to move it', 
   assert.match(moved.detail, /move renovate\.json to \.github\/renovate\.json/)
 })
 
+test('the docs ignore step must be the starter script, not a one-line diff', () => {
+  const oneLine = JSON.stringify({ ignoreCommand: '[ -n "$VERCEL_GIT_PREVIOUS_SHA" ] && git diff --quiet "$VERCEL_GIT_PREVIOUS_SHA" HEAD -- . || exit 1' })
+  const drifted = `${library['docs/scripts/vercel-ignore.mjs']}\nprocess.exit(0)\n`
+  for (const [files, detail] of [
+    [{ 'docs/vercel.json': oneLine, 'docs/scripts/vercel-ignore.mjs': null }, /does not use docs\/scripts\/vercel-ignore\.mjs/],
+    [{ 'docs/vercel.json': '{}' }, /has no ignoreCommand/],
+    [{ 'docs/scripts/vercel-ignore.mjs': drifted }, /differs from the starter/],
+  ]) {
+    const result = audit(files)['DOC-01']
+    assert.equal(result.status, 'warn')
+    assert.match(result.detail, detail)
+  }
+})
+
 test('required contributing and Claude files fail when missing', () => {
   for (const file of ['.github/CONTRIBUTING.md', '.claude/CLAUDE.md']) {
     assert.equal(audit({ [file]: null })['FILE-08'].status, 'warn', file)
@@ -419,7 +434,7 @@ test('advice never fails and each JSON item identifies advice', () => {
 })
 
 test('docs checks apply only when docs files exist', () => {
-  const result = audit({ 'docs/vercel.json': null, 'docs/package.json': null, 'docs/content/docs/1.start/index.md': null, 'docs/content/docs/2.reference/index.md': null, 'scripts/agent-docs.mjs': null })
+  const result = audit({ 'docs/vercel.json': null, 'docs/scripts/vercel-ignore.mjs': null, 'docs/package.json': null, 'docs/content/docs/1.start/index.md': null, 'docs/content/docs/2.reference/index.md': null, 'scripts/agent-docs.mjs': null })
   for (const id of ['DOC-01', 'DOC-02', 'DOC-03', 'DOC-04']) assert.equal(result[id], undefined)
   assert.equal(audit({ 'docs/package.json': '{}' })['DOC-01'].status, 'fail')
 })

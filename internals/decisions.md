@@ -2,6 +2,14 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D15 (2026-10-22): The docs ignore step is a starter script, not a one-line diff.** — The one-line
+  `git diff "$VERCEL_GIT_PREVIOUS_SHA" HEAD` built whenever the previous commit was unset (first push of a
+  branch) or missing from Vercel's shallow clone (every push to the force-pushed Version packages branch).
+  better-convex spent 59 build hours in a month that way, mostly on unchanged docs. The starter's
+  `docs/scripts/vercel-ignore.mjs` compares previews with `main`, fetches missing commits and still builds
+  when git cannot answer. The audit warns on the old command; the script takes the site's paths as
+  arguments, so one file serves every repository.
+
 - **D14 (2026-10-07): Our own `@lupinum/*` scope skips the dependency quarantine (FILE-06).** — The Ginko
   libraries depend on each other and release several times a week; a 24-hour wait per release wave turned one
   coordinated release into several days. Only our protected `release.yml` workflows publish to the scope, so the

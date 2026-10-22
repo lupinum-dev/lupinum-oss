@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nuxtjs",
   "buildCommand": "pnpm --dir .. docs:build",
-  "ignoreCommand": "[ -n \"$VERCEL_GIT_PREVIOUS_SHA\" ] && git diff --quiet \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD -- . ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../scripts/clean-docs-output.mjs ../scripts/verify-docs-output.mjs || exit 1",
+  "ignoreCommand": "node ../starters/_shared/library/docs/scripts/vercel-ignore.mjs . ../package.json ../pnpm-lock.yaml ../pnpm-workspace.yaml ../scripts/clean-docs-output.mjs ../scripts/verify-docs-output.mjs",
   "outputDirectory": null
 }
