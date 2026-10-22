@@ -12,7 +12,7 @@
 // detail before acting on it.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative, resolve, sep } from 'node:path'
+import { join, posix, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
@@ -382,8 +382,21 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const order = ['start', 'guides', 'reference', 'help']
     const valid = folders.includes('start') && folders.includes('reference') && folders.every((name, i) => order.includes(name) && (i === 0 || order.indexOf(name) > order.indexOf(folders[i - 1])))
     add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : `sections are ${list(folders) || 'missing'}; use start and reference, plus guides and help if needed, in that order`)
-    const vercel = json(src.read('docs/vercel.json') ?? src.read('vercel.json'))
-    add('vercel', vercel?.ignoreCommand ? 'pass' : 'warn', vercel?.ignoreCommand ? `ignoreCommand: ${vercel.ignoreCommand}` : 'docs exist but vercel.json has no ignoreCommand')
+    // A one-line git diff builds every new branch and every force-pushed release branch, because Vercel's
+    // previous commit is then unknown or missing from its shallow clone. The starter's script handles both.
+    const vercelFile = src.read('docs/vercel.json') == null ? 'vercel.json' : 'docs/vercel.json'
+    const vercel = json(src.read(vercelFile))
+    const ignoreScript = 'docs/scripts/vercel-ignore.mjs'
+    // The command must run the script with node. Its path is relative to the folder of vercel.json.
+    const scriptArg = /(?:^|[;&|]\s*)node\s+(\S*scripts\/vercel-ignore\.mjs)(?=\s|$)/.exec(vercel?.ignoreCommand ?? '')?.[1]
+    const scriptPath = scriptArg && posix.join(posix.dirname(vercelFile), scriptArg)
+    const scriptExists = Boolean(scriptPath) && src.files.includes(scriptPath)
+    const scriptMatches = scriptExists && matchesStarter(src.read(scriptPath), readFileSync(new URL(`../starters/_shared/library/${ignoreScript}`, import.meta.url), 'utf8'))
+    add('vercel', scriptMatches ? 'pass' : 'warn', scriptMatches ? `ignoreCommand: ${vercel.ignoreCommand}`
+      : !vercel?.ignoreCommand ? `docs exist but vercel.json has no ignoreCommand; copy ${ignoreScript} and the ignoreCommand from the starter`
+      : !scriptPath ? `ignoreCommand does not run ${ignoreScript} with node; copy the script and the ignoreCommand from the starter, so new and force-pushed branches skip unchanged docs`
+      : !scriptExists ? `ignoreCommand runs ${scriptPath}, which does not exist; copy it from the starter`
+      : `${scriptPath} differs from the starter; copy it from lupinum-oss`)
   }
 
   // 12. Excess tooling.
