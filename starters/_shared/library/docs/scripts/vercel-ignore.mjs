@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process'
 
 const paths = process.argv.slice(2)
 const git = (...args) => spawnSync('git', args, { stdio: 'ignore' }).status ?? 1
-const hasCommit = (ref) => git('cat-file', '-e', `${ref}^{commit}`) === 0
+const hasCommit = ref => git('cat-file', '-e', `${ref}^{commit}`) === 0
 const { VERCEL_ENV, VERCEL_GIT_COMMIT_REF: branch, VERCEL_GIT_PREVIOUS_SHA: previousSha } = process.env
 
 if (!paths.length || !branch) process.exit(1)
@@ -21,7 +21,8 @@ if (VERCEL_ENV === 'production' || branch === 'main') {
   if (!hasCommit(previousSha)) git('fetch', '--no-tags', '--depth=1', 'origin', previousSha)
   if (!hasCommit(previousSha)) process.exit(1)
   range = [previousSha, 'HEAD']
-} else {
+}
+else {
   git('fetch', '--no-tags', '--depth=200', 'origin', '+refs/heads/main:refs/remotes/origin/main')
   git('fetch', '--no-tags', '--deepen=200', 'origin', branch)
   // Without the fork point, comparing the two tips could hide a change, so build.
