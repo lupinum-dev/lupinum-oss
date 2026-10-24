@@ -14,8 +14,8 @@ allowBuilds:
   vue-demi: true
 
 overrides:
-  # Fix undici high advisories; remove when unifont depends on a fixed version (>=8.10.2).
-  "unifont>undici": 8.11.2
+  # Fix undici high advisories; remove when unifont depends on a fixed version (>=8.12.2).
+  "unifont>undici": 8.12.2
   # Remove when fontless requires esbuild 0.28.1 or newer.
   "fontless>esbuild": 0.28.2
   # Remove when Vite requires esbuild 0.28.1 or newer.
@@ -24,6 +24,8 @@ overrides:
   devalue: 5.9.4
   # Remove when @vue/compiler-core requires source-map-js 1.2.2 or newer (GHSA-68fv-2mgg-jv7q).
   source-map-js: 1.2.2
+  # Remove when @lupinum/ginko-content requires zod 4.6.6 or newer (GHSA-mrhx-c7xc-m3w5); it pins 4.4.3.
+  "zod@<4.6.6": 4.6.6
 
 auditConfig:
   ignoreGhsas:
