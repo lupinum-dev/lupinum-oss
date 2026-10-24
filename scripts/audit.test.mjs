@@ -62,6 +62,18 @@ test('real attack paths fail', () => {
   }
 })
 
+test('setup-node on the runner cache warns; an exact minimum-version lane does not', () => {
+  const ci = setup => library['.github/workflows/ci.yml'].replace('      - run: pnpm verify', `      - uses: actions/setup-node@${sha}\n        with: ${setup}\n      - run: pnpm verify`)
+  for (const [setup, status] of [
+    ['{ node-version: 24 }', 'warn'],
+    ['{ node-version-file: .nvmrc }', 'warn'],
+    ['{ node-version: 24, check-latest: true }', 'pass'],
+    ['{ node-version: 22.18.0 }', 'pass'],
+  ]) {
+    assert.equal(audit({ '.github/workflows/ci.yml': ci(setup) })['FILE-03'].status, status, setup)
+  }
+})
+
 test('agents in consuming projects can find the docs of the installed version', () => {
   const pkg = JSON.parse(library['package.json'])
   const without = (key) => JSON.stringify({ ...pkg, [key]: undefined })

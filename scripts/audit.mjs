@@ -138,7 +138,7 @@ const ITEM_IDS = Object.entries({ FILE: 10, GH: 8, NPM: 4, DOC: 5, OPS: 5 })
   .flatMap(([prefix, count]) => Array.from({ length: count }, (_, i) => `${prefix}-${String(i + 1).padStart(2, '0')}`))
 const CHECK_ITEMS = {
   workflows: 'FILE-01', 'ci-check': 'FILE-02', 'ci-audit': 'FILE-02',
-  'actions-pinned': 'FILE-03', permissions: 'FILE-03', 'pull-request-target': 'FILE-03',
+  'actions-pinned': 'FILE-03', 'node-current': 'FILE-03', permissions: 'FILE-03', 'pull-request-target': 'FILE-03',
   'no-npm-token': 'FILE-04', changesets: 'FILE-05',
   'pnpm-quarantine': 'FILE-06', renovate: 'FILE-07', files: 'FILE-08', lean: 'FILE-08',
   scripts: 'FILE-09', 'agent-docs': 'DOC-03', ruleset: 'GH-01', 'tag-ruleset': 'GH-02',
@@ -275,6 +275,20 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     }
   }
   add('actions-pinned', unpinned.length ? 'fail' : 'pass', unpinned.length ? list(unpinned) : 'every action uses a full SHA')
+
+  // setup-node otherwise takes the runner's cached Node, which can miss a Node security release for days.
+  // An exact version is a minimum-version lane and needs no check-latest.
+  const cachedNode = []
+  for (const [name, { data }] of workflows) {
+    for (const [id, job] of Object.entries(data?.jobs ?? {})) {
+      for (const step of steps(job)) {
+        if (typeof step?.uses !== 'string' || !step.uses.startsWith('actions/setup-node@')) continue
+        const exact = /^\d+\.\d+\.\d+$/.test(String(step.with?.['node-version'] ?? ''))
+        if (!exact && ![true, 'true'].includes(step.with?.['check-latest'])) cachedNode.push(`${name}: ${id}`)
+      }
+    }
+  }
+  add('node-current', cachedNode.length ? 'warn' : 'pass', cachedNode.length ? `setup-node without check-latest: true in ${list(cachedNode)}` : 'setup-node resolves the newest Node patch')
 
   // 4. Minimal permissions: read-only default, write granted per job.
   const permissionProblems = []
