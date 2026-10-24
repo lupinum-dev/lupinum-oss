@@ -2,6 +2,12 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D15 (2026-10-24): `actions/setup-node` always sets `check-latest: true` (FILE-03).** — Without it,
+  `node-version: 24` takes the runner's cached Node. After the 2026-10-21 Node security release
+  (CVE-2026-111497), CI and release jobs still ran the unpatched 24.21.0 a day later. An exact version
+  stays allowed for minimum-version lanes, which test the `engines` floor on purpose. The audit warns
+  instead of failing, because a test job on a cached Node is low risk.
+
 - **D14 (2026-10-07): Our own `@lupinum/*` scope skips the dependency quarantine (FILE-06).** — The Ginko
   libraries depend on each other and release several times a week; a 24-hour wait per release wave turned one
   coordinated release into several days. Only our protected `release.yml` workflows publish to the scope, so the
