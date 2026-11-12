@@ -8,7 +8,7 @@ import { auditFiles, auditSettings, compareVersions, localSource, checklistItems
 const sha = 'a'.repeat(40)
 const library = {
   'scripts/audit-deps.mjs': readFileSync(new URL('../starters/_shared/library/scripts/audit-deps.mjs', import.meta.url), 'utf8'),
-  'docs/vercel.json': '{"ignoreCommand":"true"}',
+  'docs/vercel.json': '{"ignoreCommand":"true","git":{"deploymentEnabled":{"renovate/**":false,"changeset-release/**":false}}}',
   'docs/package.json': JSON.stringify({ dependencies: { '@lupinum/ginko-docs': '1.0.0' } }),
   'docs/content/docs/1.start/index.md': '# Start',
   'docs/content/docs/2.reference/index.md': '# Reference',
@@ -422,6 +422,14 @@ test('docs checks apply only when docs files exist', () => {
   const result = audit({ 'docs/vercel.json': null, 'docs/package.json': null, 'docs/content/docs/1.start/index.md': null, 'docs/content/docs/2.reference/index.md': null, 'scripts/agent-docs.mjs': null })
   for (const id of ['DOC-01', 'DOC-02', 'DOC-03', 'DOC-04']) assert.equal(result[id], undefined)
   assert.equal(audit({ 'docs/package.json': '{}' })['DOC-01'].status, 'fail')
+})
+
+test('docs on Vercel warn when Renovate or release branches still deploy previews', () => {
+  assert.equal(audit()['DOC-01'].status, 'pass')
+  assert.equal(audit({ 'docs/vercel.json': '{"ignoreCommand":"true","git":{"deploymentEnabled":{"**":false,"main":true}}}' })['DOC-01'].status, 'pass')
+  const result = audit({ 'docs/vercel.json': '{"ignoreCommand":"true"}' })['DOC-01']
+  assert.equal(result.status, 'warn')
+  assert.match(result.detail, /renovate\/\*\*/)
 })
 
 test('docs sections include start and reference in the standard order', () => {

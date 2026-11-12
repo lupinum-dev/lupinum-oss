@@ -383,7 +383,12 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const valid = folders.includes('start') && folders.includes('reference') && folders.every((name, i) => order.includes(name) && (i === 0 || order.indexOf(name) > order.indexOf(folders[i - 1])))
     add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : `sections are ${list(folders) || 'missing'}; use start and reference, plus guides and help if needed, in that order`)
     const vercel = json(src.read('docs/vercel.json') ?? src.read('vercel.json'))
-    add('vercel', vercel?.ignoreCommand ? 'pass' : 'warn', vercel?.ignoreCommand ? `ignoreCommand: ${vercel.ignoreCommand}` : 'docs exist but vercel.json has no ignoreCommand')
+    // Bot branches (dependency updates, the release PR) change no docs a person reviews; CI tests them.
+    // A docs site that deploys only main (`"**": false, "main": true`) skips them too.
+    const enabled = vercel?.git?.deploymentEnabled
+    const botsSkipped = enabled === false || enabled?.['**'] === false || ['renovate/**', 'changeset-release/**'].every(branch => enabled?.[branch] === false)
+    const gaps = [!vercel?.ignoreCommand && 'has no ignoreCommand', !botsSkipped && 'does not set git.deploymentEnabled "renovate/**" and "changeset-release/**" to false'].filter(Boolean)
+    add('vercel', gaps.length ? 'warn' : 'pass', gaps.length ? `docs exist but vercel.json ${gaps.join(' and ')}` : `ignoreCommand: ${vercel.ignoreCommand}; bot branches do not deploy`)
   }
 
   // 12. Excess tooling.
