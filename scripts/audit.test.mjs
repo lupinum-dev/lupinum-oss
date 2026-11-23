@@ -425,8 +425,14 @@ test('docs checks apply only when docs files exist', () => {
 })
 
 test('docs on Vercel warn when Renovate or release branches still deploy previews', () => {
+  const status = deploymentEnabled => audit({ 'docs/vercel.json': JSON.stringify({ ignoreCommand: 'true', git: { deploymentEnabled } }) })['DOC-01'].status
   assert.equal(audit()['DOC-01'].status, 'pass')
-  assert.equal(audit({ 'docs/vercel.json': '{"ignoreCommand":"true","git":{"deploymentEnabled":{"**":false,"main":true}}}' })['DOC-01'].status, 'pass')
+  assert.equal(status(false), 'pass')
+  assert.equal(status({ '**': false, main: true }), 'pass')
+  // Vercel deploys a branch when any rule that matches it is true.
+  assert.equal(status({ '**': false, main: true, 'renovate/**': true }), 'warn')
+  assert.equal(status({ '**': true, 'renovate/**': false, 'changeset-release/**': false }), 'warn')
+  assert.equal(status({ 'renovate/**': false }), 'warn')
   const result = audit({ 'docs/vercel.json': '{"ignoreCommand":"true"}' })['DOC-01']
   assert.equal(result.status, 'warn')
   assert.match(result.detail, /renovate\/\*\*/)

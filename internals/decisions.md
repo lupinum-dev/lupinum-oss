@@ -2,6 +2,15 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D15 (2026-11-12): Docs sites build no Vercel previews for Renovate and release branches (DOC-01).** — From
+  October to mid-November 2026, Renovate branches used about 30% of the team's Vercel build minutes and release
+  branches about 6%. Those branches change nothing a person reviews in the docs, and `ci` already builds them.
+  `git.deploymentEnabled` in `docs/vercel.json` turns them off; the `ignoreCommand` cannot, because it has no
+  earlier deployment to compare with on the first push of a branch. The tradeoff: a dependency update that
+  breaks the docs build shows only when `main` deploys, and a failed production build leaves the old version
+  live. The audit warns, it does not fail, and it reads the rules the way Vercel does: a branch deploys when no
+  rule matches it or when any matching rule is `true`.
+
 - **D14 (2026-10-07): Our own `@lupinum/*` scope skips the dependency quarantine (FILE-06).** — The Ginko
   libraries depend on each other and release several times a week; a 24-hour wait per release wave turned one
   coordinated release into several days. Only our protected `release.yml` workflows publish to the scope, so the
