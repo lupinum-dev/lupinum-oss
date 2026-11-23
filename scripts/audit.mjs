@@ -12,7 +12,7 @@
 // detail before acting on it.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative, resolve, sep } from 'node:path'
+import { join, matchesGlob, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
@@ -383,7 +383,19 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
     const valid = folders.includes('start') && folders.includes('reference') && folders.every((name, i) => order.includes(name) && (i === 0 || order.indexOf(name) > order.indexOf(folders[i - 1])))
     add('DOC-04', valid ? 'pass' : 'fail', valid ? list(folders) : `sections are ${list(folders) || 'missing'}; use start and reference, plus guides and help if needed, in that order`)
     const vercel = json(src.read('docs/vercel.json') ?? src.read('vercel.json'))
-    add('vercel', vercel?.ignoreCommand ? 'pass' : 'warn', vercel?.ignoreCommand ? `ignoreCommand: ${vercel.ignoreCommand}` : 'docs exist but vercel.json has no ignoreCommand')
+    // Bot branches (dependency updates, the release PR) change no docs a person reviews; CI tests them.
+    // Vercel deploys a branch when no rule matches it, or when any matching rule is true. So one `true`
+    // rule can turn a bot branch back on, and deploying only main (`"**": false, "main": true`) skips them.
+    const enabled = vercel?.git?.deploymentEnabled
+    const deploys = (branch) => {
+      if (enabled === null || typeof enabled !== 'object') return enabled !== false
+      const rules = Object.entries(enabled).filter(([pattern]) => matchesGlob(branch, pattern))
+      return rules.length === 0 || rules.some(([, on]) => on === true)
+    }
+    // Probe names no rule would spell out, so only a pattern that covers the whole prefix can match them.
+    const botsSkipped = !deploys('renovate/~audit-probe~') && !deploys('changeset-release/~audit-probe~')
+    const gaps = [!vercel?.ignoreCommand && 'has no ignoreCommand', !botsSkipped && 'still deploys Renovate or release branches; set git.deploymentEnabled "renovate/**" and "changeset-release/**" to false, with no true rule that matches them'].filter(Boolean)
+    add('vercel', gaps.length ? 'warn' : 'pass', gaps.length ? `docs exist but vercel.json ${gaps.join(' and ')}` : `ignoreCommand: ${vercel.ignoreCommand}; bot branches do not deploy`)
   }
 
   // 12. Excess tooling.
