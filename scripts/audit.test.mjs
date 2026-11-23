@@ -433,6 +433,9 @@ test('docs on Vercel warn when Renovate or release branches still deploy preview
   assert.equal(status({ '**': false, main: true, 'renovate/**': true }), 'warn')
   assert.equal(status({ '**': true, 'renovate/**': false, 'changeset-release/**': false }), 'warn')
   assert.equal(status({ 'renovate/**': false }), 'warn')
+  // Rules for single branches leave every other Renovate and release branch deploying.
+  assert.equal(status({ 'renovate/any-update': false, 'changeset-release/main': false }), 'warn')
+  assert.equal(status({ 'renovate/*': false, 'changeset-release/*': false }), 'pass')
   const result = audit({ 'docs/vercel.json': '{"ignoreCommand":"true"}' })['DOC-01']
   assert.equal(result.status, 'warn')
   assert.match(result.detail, /renovate\/\*\*/)

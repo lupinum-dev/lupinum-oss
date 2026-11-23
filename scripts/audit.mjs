@@ -392,7 +392,8 @@ export function auditFiles(src, { publishes = publicPackages(src).length > 0 } =
       const rules = Object.entries(enabled).filter(([pattern]) => matchesGlob(branch, pattern))
       return rules.length === 0 || rules.some(([, on]) => on === true)
     }
-    const botsSkipped = !deploys('renovate/any-update') && !deploys('changeset-release/main')
+    // Probe names no rule would spell out, so only a pattern that covers the whole prefix can match them.
+    const botsSkipped = !deploys('renovate/~audit-probe~') && !deploys('changeset-release/~audit-probe~')
     const gaps = [!vercel?.ignoreCommand && 'has no ignoreCommand', !botsSkipped && 'still deploys Renovate or release branches; set git.deploymentEnabled "renovate/**" and "changeset-release/**" to false, with no true rule that matches them'].filter(Boolean)
     add('vercel', gaps.length ? 'warn' : 'pass', gaps.length ? `docs exist but vercel.json ${gaps.join(' and ')}` : `ignoreCommand: ${vercel.ignoreCommand}; bot branches do not deploy`)
   }
