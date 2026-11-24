@@ -2,6 +2,15 @@
 
 Newest first. Format: `Dn (date): decision — why`.
 
+- **D16 (2026-11-24): The docs ignore step is a script that fetches the commit it compares with, and `ci/**`
+  branches build no preview (DOC-01).** — In the billing cycle to 2026-11-24, about 30% of the feature-branch docs
+  previews in two libraries were built although the docs had not changed since the branch's last build. The
+  one-line `git diff` fails when the earlier commit is missing from Vercel's shallow clone, and then it builds.
+  `docs/scripts/vercel-ignore.mjs` fetches that commit, and compares the first push of a branch with `main`
+  instead of building it blindly. One branch that only carried snapshots for CI runs built 103 previews, so
+  `ci/**` is off like the bot branches. The tradeoff: one more file in `docs/`, and a `ci/...` branch never shows
+  a preview.
+
 - **D15 (2026-11-12): Docs sites build no Vercel previews for Renovate and release branches (DOC-01).** — From
   October to mid-November 2026, Renovate branches used about 30% of the team's Vercel build minutes and release
   branches about 6%. Those branches change nothing a person reviews in the docs, and `ci` already builds them.
