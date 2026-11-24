@@ -8,7 +8,7 @@ import { auditFiles, auditSettings, compareVersions, localSource, checklistItems
 const sha = 'a'.repeat(40)
 const library = {
   'scripts/audit-deps.mjs': readFileSync(new URL('../starters/_shared/library/scripts/audit-deps.mjs', import.meta.url), 'utf8'),
-  'docs/vercel.json': '{"ignoreCommand":"true","git":{"deploymentEnabled":{"renovate/**":false,"changeset-release/**":false}}}',
+  'docs/vercel.json': '{"ignoreCommand":"true","git":{"deploymentEnabled":{"renovate/**":false,"changeset-release/**":false,"ci/**":false}}}',
   'docs/package.json': JSON.stringify({ dependencies: { '@lupinum/ginko-docs': '1.0.0' } }),
   'docs/content/docs/1.start/index.md': '# Start',
   'docs/content/docs/2.reference/index.md': '# Reference',
@@ -435,7 +435,9 @@ test('docs on Vercel warn when Renovate or release branches still deploy preview
   assert.equal(status({ 'renovate/**': false }), 'warn')
   // Rules for single branches leave every other Renovate and release branch deploying.
   assert.equal(status({ 'renovate/any-update': false, 'changeset-release/main': false }), 'warn')
-  assert.equal(status({ 'renovate/*': false, 'changeset-release/*': false }), 'pass')
+  assert.equal(status({ 'renovate/*': false, 'changeset-release/*': false, 'ci/*': false }), 'pass')
+  // Branches that only run CI on a snapshot must not deploy either.
+  assert.equal(status({ 'renovate/**': false, 'changeset-release/**': false }), 'warn')
   const result = audit({ 'docs/vercel.json': '{"ignoreCommand":"true"}' })['DOC-01']
   assert.equal(result.status, 'warn')
   assert.match(result.detail, /renovate\/\*\*/)
