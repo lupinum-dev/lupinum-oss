@@ -53,6 +53,8 @@ test('docs build runs only when the docs changed since the last build of the bra
   assert.equal(ignore(docsChange, 'feat', srcOnly), 1, 'later push with docs changes builds')
   assert.equal(ignore(srcOnly, 'feat'), 0, 'first push without docs changes skips')
   assert.equal(ignore(srcAgain, 'feat'), 1, 'first push with docs changes builds')
+  // The last build is gone (force-push): it may hold a docs change that this push took back, so a clean diff with main proves nothing.
+  assert.equal(ignore(srcOnly, 'feat', '0123456789abcdef0123456789abcdef01234567'), 1, 'last build that cannot be fetched builds')
   // "Redeploy" after an env change reuses the deployed commit; skipping it keeps the old env values live.
   assert.equal(ignore(srcAgain, 'feat', srcAgain), 1, 'redeploy of the same commit builds')
   assert.equal(ignore(main, 'main'), 1, 'main without an earlier build builds')
